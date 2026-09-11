@@ -71,3 +71,14 @@ GATEWAY_ONLINE = {
 	"latitude": -1.2968242, "longitude": 36.7771465, "altitude": 1787,
 	"gpsTimeSync": True, "statTime": "2026-09-09 14:02:11", "timezone": "Europe/Amsterdam",
 }
+
+# Measured 2026-09-11 against the live SMP, on a token a human had revoked by
+# logging into tagmeter.com. The platform reports an expired token on a READ as
+# code 200 with the failure buried in the message -- not as code 401, and not as
+# the bare empty list get_customer_info returns. Its text also conflates two
+# unrelated faults, which is why a refresh-and-retry is the only way to tell
+# them apart.
+AMR_TOKEN_EXPIRED = {
+	"code": 200,
+	"message": "Authorization Token expired or invalid or unknown meterID 68753500170871",
+}
