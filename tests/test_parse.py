@@ -116,3 +116,36 @@ def test_meter_sn_validation():
 	assert not is_valid_meter_sn("6875350017086")     # 13 digits
 	assert not is_valid_meter_sn("687535001708688")   # 15 digits
 	assert not is_valid_meter_sn("6875350017086a")
+
+
+# Captured live 2026-09-11. F04CD5 is genuinely down; 0C4EC0 serves all 100 meters.
+GW_DOWN = {
+	"code": 200, "gatewayID": "F04CD5FFFE01CF70", "online": False, "mqtt_protocol": True,
+	"latitude": 0, "longitude": 0, "altitude": 0, "gpsTimeSync": False,
+	"statTime": "2026-09-09 12:21:13", "timezone": "Europe/Amsterdam",
+}
+GW_UP = {
+	"code": 200, "gatewayID": "0C4EC0FFFE00E97F", "online": True, "mqtt_protocol": True,
+	"latitude": -1.2970528, "longitude": 36.7771403, "altitude": 1814, "gpsTimeSync": True,
+	"statTime": "2026-09-11 10:23:06", "timezone": "Europe/Amsterdam",
+}
+
+
+def test_gateway_status_reports_offline():
+	out = parse_gateway_status(GW_DOWN)
+	assert out["gateway_id"] == "F04CD5FFFE01CF70"
+	assert out["online"] is False
+	assert out["gps_time_sync"] is False
+
+
+def test_gateway_stat_time_is_amsterdam_not_utc():
+	"""statTime is SMP-generated in Dutch local time -- 2h ahead of UTC in September."""
+	out = parse_gateway_status(GW_UP)
+	assert out["stat_time"].hour == 8
+	assert out["stat_time"].tzinfo is not None
+
+
+def test_gateway_without_a_gps_fix_reports_zeroes_not_none():
+	out = parse_gateway_status(GW_DOWN)
+	assert out["latitude"] == 0.0
+	assert out["longitude"] == 0.0
