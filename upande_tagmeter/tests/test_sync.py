@@ -5,6 +5,7 @@ tests/ at the app root covers how the vendor's wire behaviour is interpreted.
 """
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -325,6 +326,48 @@ class TestSync(IntegrationTestCase):
 		sn = self._staged("68753500170918", None, outcome="server_error")
 		sync.refresh_link_states()
 		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "No Data on SMP")
+
+	def test_a_decommissioned_meter_is_dropped_from_the_sweep(self):
+		"""A retired meter is quiet on purpose, not silently broken.
+
+		Left in the sweep it lands in the Silent tile and sends a technician to
+		a meter that is no longer there. Clearing, not merely skipping: one
+		decommissioned while Silent would otherwise keep that verdict forever.
+		"""
+		sn = self._staged("68753500170924", 100)
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Silent")
+
+		frappe.db.set_value("Water Meter", sn, "status", "Decommissioned", update_modified=False)
+		result = sync.refresh_link_states()
+		self.assertFalse(frappe.db.get_value("Water Meter", sn, "link_state"))
+		self.assertGreaterEqual(result["cleared_decommissioned"], 1)
+
+	def test_a_meter_with_no_status_is_still_swept(self):
+		"""SQL ``status != 'Decommissioned'`` also drops rows where status is NULL.
+
+		A half-commissioned meter is exactly the kind this view exists to
+		diagnose, so it must not be the one row the sweep silently skips.
+		"""
+		sn = self._staged("68753500170925", 1)
+		frappe.db.set_value("Water Meter", sn, {"status": None, "link_state": ""},
+		                    update_modified=False)
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Reporting")
+
+	def test_sync_fleet_refreshes_link_state_as_well_as_online(self):
+		"""The sweep moves last_seen on 100 meters; both derived flags follow it.
+
+		``only_profile`` is set to a profile no meter carries, so the sweep
+		polls nothing -- what is under test is the tail of sync_fleet, not the
+		polling.
+		"""
+		sn = self._staged("68753500170926", 100)
+		frappe.db.set_value("Water Meter", sn, "link_state", "", update_modified=False)
+		with patch.object(sync, "get_client", return_value=FakeClient()):
+			result = sync.sync_fleet(only_profile="No Such Profile")
+		self.assertEqual(result["polled"], 0)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Silent")
 
 	def test_refresh_link_states_does_not_move_the_online_flag(self):
 		"""Regression guard: online keeps its exact current rule and values."""
