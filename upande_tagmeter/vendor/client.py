@@ -279,6 +279,13 @@ class TagMeterClient:
 			token = self._refresh(used=token)
 			outcome, parsed = self._classify_write(*self._raw_post(endpoint, body, token))
 			if outcome is Outcome.UNAUTHORIZED:
+				if reports_auth_failure(parsed):
+					# Their message conflates "token expired" with "unknown
+					# meterID". A freshly issued token rules out the first, so
+					# what is left is a genuine refusal. Returning rather than
+					# raising matters here too: one bad serial must not abort a
+					# sweep, and the caller already handles REJECTED.
+					return Outcome.REJECTED, parsed
 				raise AuthFailed("SMP rejected a freshly issued token on a write")
 		return outcome, parsed
 
@@ -304,6 +311,13 @@ class TagMeterClient:
 		if not isinstance(parsed, dict):
 			return Outcome.BAD_RESPONSE, None
 		if parsed.get("code") == 401:
+			return Outcome.UNAUTHORIZED, parsed
+		if reports_auth_failure(parsed):
+			# An expired token on a write carries no "success", so the rule
+			# below reads it as a refusal and the caller closes the command out
+			# as Rejected -- permanently, for a token problem. Seen in the field
+			# 2026-09-11 on a live valve. Check for it before judging the
+			# message, so call_write's refresh-and-retry gets its chance.
 			return Outcome.UNAUTHORIZED, parsed
 		message = str(parsed.get("message") or "").lower()
 		if "success" in message:
