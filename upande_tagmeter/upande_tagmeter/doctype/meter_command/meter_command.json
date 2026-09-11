@@ -1,0 +1,205 @@
+{
+ "doctype": "DocType",
+ "name": "Meter Command",
+ "module": "upande_tagmeter",
+ "autoname": "naming_series:",
+ "naming_rule": "By \"Naming Series\" field",
+ "engine": "InnoDB",
+ "editable_grid": 0,
+ "track_changes": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "field_order": [
+  "intent_sb",
+  "naming_series",
+  "water_meter",
+  "command_type",
+  "requested_state",
+  "cb_intent",
+  "status",
+  "requested_by",
+  "enqueued_at",
+  "delivery_sb",
+  "attempts",
+  "max_attempts",
+  "last_attempt_at",
+  "cb_delivery",
+  "expires_at",
+  "last_outcome",
+  "vendor_message",
+  "result_sb",
+  "confirmed_at",
+  "confirming_reading",
+  "cb_result",
+  "failure_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "intent_sb",
+   "label": "Intent",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "naming_series",
+   "label": "Series",
+   "fieldtype": "Select",
+   "options": "MC-.YYYY.-",
+   "default": "MC-.YYYY.-",
+   "hidden": 1
+  },
+  {
+   "fieldname": "water_meter",
+   "label": "Water Meter",
+   "fieldtype": "Link",
+   "options": "Water Meter",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "command_type",
+   "label": "Command",
+   "fieldtype": "Select",
+   "options": "valve_open\nvalve_close",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "requested_state",
+   "label": "Requested Valve State",
+   "fieldtype": "Select",
+   "options": "Open\nClosed",
+   "read_only": 1,
+   "description": "What valve_reported must become for this command to be considered confirmed."
+  },
+  {
+   "fieldname": "cb_intent",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "Queued\nConfirmed\nRejected\nFailed\nExpired",
+   "default": "Queued",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Queued means the SMP accepted it, NOT that the valve moved. Only Confirmed means a subsequent reading showed the requested state."
+  },
+  {
+   "fieldname": "requested_by",
+   "label": "Requested By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "enqueued_at",
+   "label": "Enqueued At",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delivery_sb",
+   "label": "Delivery",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "attempts",
+   "label": "Attempts",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "max_attempts",
+   "label": "Max Attempts",
+   "fieldtype": "Int",
+   "default": "3",
+   "description": "The watchdog re-sends up to this many times before failing the command."
+  },
+  {
+   "fieldname": "last_attempt_at",
+   "label": "Last Attempt",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_delivery",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expires_at",
+   "label": "Expires At",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "description": "Class B ping slots mean a command can wait hours; a measured recharge took about 11. The default window comfortably clears one 12-hour AMR cycle."
+  },
+  {
+   "fieldname": "last_outcome",
+   "label": "Last Outcome",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vendor_message",
+   "label": "SMP Message",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "description": "Verbatim. On a write the SMP returns code 200 either way, so this string is the only success signal it gives."
+  },
+  {
+   "fieldname": "result_sb",
+   "label": "Result",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "confirmed_at",
+   "label": "Confirmed At",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "confirming_reading",
+   "label": "Confirming Reading",
+   "fieldtype": "Link",
+   "options": "Meter Reading",
+   "read_only": 1,
+   "description": "The reading that proved the valve reached the requested state."
+  },
+  {
+   "fieldname": "cb_result",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "failure_reason",
+   "label": "Failure Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "TagMeter Operator",
+   "read": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1
+  }
+ ]
+}

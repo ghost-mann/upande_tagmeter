@@ -1,0 +1,1395 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Upande · Kiwasco · TagMeter Fleet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Shades of black — from the Upande logo */
+  --ink:#0a0a0a; --ink-1:#1a1a18; --ink-2:#2a2a26; --ink-3:#3a3a34;
+  --ink-4:#5a5a52; --ink-mute:#8a8780; --ink-faint:#b8b6ae;
+
+  /* Surfaces */
+  --bg:#f4f3ef; --surface:#fafaf6; --surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04), 0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06), 0 24px 48px -24px rgba(10,10,10,0.18);
+
+  /* Water blue — this page's accent, where the scouting page uses trap gold */
+  --flow-100:#e4eff8; --flow-300:#6ea9d8; --flow-500:#2b6ca3;
+  --flow-700:#1b4a73; --flow-deep:#143857;
+
+  /* Severity scale — identical to the other dashboards on purpose */
+  --sev-low:#3f8f4f; --sev-mod:#d9962e; --sev-high:#c4302b;
+  --bio:#228883;
+
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --grad-flow:linear-gradient(135deg,#1b4a73 0%,#6ea9d8 100%);
+
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:ui-monospace,'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--sans);font-size:14px;color:var(--ink-3);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:where(button,a):focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+.topbar{background:var(--surface-2);padding:14px 40px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;border-bottom:1px solid var(--hairline)}
+.topbar__brand{display:flex;align-items:center;gap:16px}
+.topbar__logo{height:30px;width:auto}
+.topbar__divider{width:1px;height:22px;background:var(--hairline)}
+.topbar__product{font:600 14px var(--sans);color:var(--ink);letter-spacing:-.2px}
+.topbar__product small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:1px}
+.topbar__nav{display:flex;gap:4px;margin-left:32px}
+.topbar__nav a{padding:8px 14px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;border-radius:999px;transition:all .2s}
+.topbar__nav a:hover{background:rgba(10,10,10,0.04);color:var(--ink)}
+.topbar__nav a.on{background:var(--ink);color:#fafaf6}
+.topbar__right{display:flex;align-items:center;gap:14px;font-size:13px;color:var(--ink-4);margin-left:auto}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:grid;place-items:center;font-weight:600;font-size:12px;flex-shrink:0}
+
+.page{max-width:1560px;margin:0 auto;padding:36px 40px 80px;display:grid;grid-template-columns:264px minmax(0,1fr);gap:24px;align-items:start}
+.main{min-width:0}
+
+.side{position:sticky;top:82px;background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);padding:22px 20px;display:flex;flex-direction:column;gap:22px}
+.side__label{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.8px;color:var(--ink-mute);margin-bottom:10px}
+.side__nav{display:flex;flex-direction:column;gap:2px}
+.side__link{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;cursor:pointer;transition:all .2s}
+.side__link svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;flex-shrink:0}
+.side__link:hover{background:rgba(10,10,10,0.04);color:var(--ink)}
+.side__link.on{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.18)}
+.side__link .n{margin-left:auto;font:600 10px var(--sans);color:var(--ink-4);background:rgba(10,10,10,0.06);border-radius:99px;padding:2px 8px}
+.side__link.on .n{background:rgba(255,255,255,0.16);color:#fafaf6}
+.side__stat{display:flex;justify-content:space-between;align-items:baseline;padding:7px 2px;border-bottom:1px solid var(--hairline)}
+.side__stat:last-child{border-bottom:0}
+.side__stat small{font:500 12px var(--sans);color:var(--ink-4)}
+.side__stat b{font:600 15px var(--sans);color:var(--ink);font-variant-numeric:tabular-nums}
+.side__legend{display:flex;flex-direction:column;gap:8px}
+.side__legend span{display:inline-flex;align-items:center;gap:9px;font:500 12px var(--sans);color:var(--ink-3)}
+.side__legend i{width:11px;height:11px;border-radius:4px;display:inline-block;flex-shrink:0}
+.side__user{display:flex;align-items:center;gap:11px;border-top:1px solid var(--hairline);padding-top:18px}
+.side__user-info b{display:block;font:600 13px var(--sans);color:var(--ink);line-height:1.25}
+.side__user-info small{font:500 11px var(--sans);color:var(--ink-mute)}
+
+.pagehead{display:grid;grid-template-columns:1fr auto;align-items:end;gap:32px;margin-bottom:36px}
+.pagehead__eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:10px;display:inline-flex;align-items:center;gap:10px}
+.pagehead__eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.pagehead__title{font:600 44px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.3px;margin:0}
+.pagehead__sub{margin-top:8px;font-size:15px;color:var(--ink-4)}
+.pagehead__tools{display:flex;gap:10px;align-items:center}
+.datepill{display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);border-radius:999px;padding:10px 16px;font:500 12px var(--sans);color:var(--ink);box-shadow:var(--shadow-card)}
+.iconbtn{width:40px;height:40px;border:0;background:var(--surface-2);border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);box-shadow:var(--shadow-card);transition:all .2s}
+.iconbtn:hover{color:var(--ink);transform:translateY(-1px)}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(212px,1fr));gap:18px;margin-bottom:24px}
+.kpi{background:var(--surface-2);border-radius:20px;padding:28px 30px;box-shadow:var(--shadow-card);position:relative;overflow:hidden}
+.kpi__label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.8px;color:var(--ink-mute);margin-bottom:14px}
+.kpi__value{font:600 44px/1 var(--sans);color:var(--ink);letter-spacing:-1.4px;font-variant-numeric:tabular-nums}
+.kpi__unit{font:400 14px var(--sans);color:var(--ink-mute);margin-top:6px}
+.kpi__trend{margin-top:16px;display:inline-flex;align-items:center;gap:6px;font:500 12px var(--sans);padding:5px 12px;border-radius:999px;background:rgba(10,10,10,0.03)}
+.kpi__trend.up{color:var(--sev-low);background:rgba(63,143,79,0.12)}
+.kpi__trend.warn{color:#96650f;background:rgba(217,150,46,0.14)}
+.kpi__trend.down{color:var(--sev-high);background:rgba(196,48,43,0.10)}
+.kpi__trend.flow{color:var(--flow-700);background:rgba(43,108,163,0.12)}
+
+.card{background:var(--surface-2);border-radius:24px;padding:28px 32px;box-shadow:var(--shadow-card);margin-bottom:18px}
+.card--padded{padding:32px 36px}
+.card__head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;gap:24px}
+.card__head h3{margin:0;font:600 18px var(--sans);color:var(--ink);letter-spacing:-.4px}
+.card__head .meta{font:500 12px var(--sans);color:var(--ink-mute)}
+.row-2{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+.row-2-eq{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.clegend{display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:14px}
+.clegend span{display:inline-flex;align-items:center;gap:8px;font:500 12px var(--sans);color:var(--ink-3)}
+.clegend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+/* ---- Fleet grid: the page's one bold element ---- */
+.fleet{display:grid;grid-template-columns:repeat(20,1fr);gap:6px}
+.fleet button{aspect-ratio:1;border:0;border-radius:6px;background:rgba(10,10,10,0.06);cursor:pointer;padding:0;position:relative;transition:transform .12s ease,box-shadow .12s ease}
+.fleet button:hover{transform:scale(1.18);box-shadow:0 4px 12px rgba(10,10,10,.22);z-index:2}
+.fleet button[data-band="live"]{background:var(--flow-500)}
+.fleet button[data-band="recent"]{background:var(--flow-300)}
+.fleet button[data-band="stale"]{background:rgba(217,150,46,.55)}
+.fleet button[data-band="cold"]{background:rgba(10,10,10,0.10)}
+.fleet button[data-band="never"]{background:repeating-linear-gradient(45deg,rgba(10,10,10,.05),rgba(10,10,10,.05) 3px,rgba(10,10,10,.14) 3px,rgba(10,10,10,.14) 6px)}
+.fleet button[data-valved="1"]::after{content:"";position:absolute;inset:-2.5px;border:2px solid var(--ink);border-radius:8px;opacity:.55}
+.fleet button[aria-pressed="true"]{outline:2.5px solid var(--ink);outline-offset:2px}
+.fleet__axis{display:flex;justify-content:space-between;margin-top:10px;font:500 11px var(--sans);color:var(--ink-mute)}
+
+/* ---- Meter detail ---- */
+.detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:18px 14px}
+.detail div small{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1px;color:var(--ink-mute);display:block;margin-bottom:3px}
+.detail div b{font:600 17px var(--sans);color:var(--ink);font-variant-numeric:tabular-nums}
+.detail div b.muted{color:var(--ink-faint);font-weight:500}
+.pill{display:inline-block;padding:2px 10px;font:500 11px var(--sans);border-radius:99px;background:rgba(10,10,10,0.05);color:var(--ink-3)}
+.pill.ok{background:rgba(63,143,79,0.13);color:#2e6b3a}
+.pill.warn{background:rgba(217,150,46,0.15);color:#96650f}
+.pill.bad{background:rgba(196,48,43,0.12);color:var(--sev-high)}
+.pill.flow{background:rgba(43,108,163,0.12);color:var(--flow-700)}
+
+/* ---- Bars ---- */
+.hb{display:grid;grid-template-columns:150px 1fr 62px;gap:18px;align-items:center;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.hb:last-of-type{border-bottom:0}
+.hb__name{font:600 13px var(--sans);color:var(--ink)}
+.hb__lane{position:relative;height:16px;background:rgba(10,10,10,0.05);border-radius:999px;overflow:hidden}
+.hb__act{position:absolute;left:0;top:0;height:16px;border-radius:999px}
+.hb__pct{font:600 14px var(--sans);text-align:right;color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+/* ---- Table ---- */
+.tbl{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tbl th{text-align:left;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.4px;color:var(--ink-mute);padding:0 12px 12px;white-space:nowrap}
+.tbl th.num,.tbl td.num{text-align:right}
+.tbl td{padding:11px 12px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-3);white-space:nowrap}
+.tbl tbody tr:hover{background:rgba(10,10,10,0.02)}
+.tbl td b{color:var(--ink);font-weight:600}
+.tbl a{text-decoration:none}
+.tbl a:hover{text-decoration:underline}
+.scroll{overflow-x:auto}
+
+.empty{border:1px dashed rgba(10,10,10,0.14);border-radius:16px;padding:26px 28px;color:var(--ink-4);font-size:13.5px;max-width:78ch}
+.empty b{color:var(--ink);font-weight:600}
+.view[hidden]{display:none}
+
+/* ---- Charts ---- */
+.chartwrap{position:relative}
+.chart{width:100%;display:block;overflow:visible}
+.chart .grid{stroke:rgba(10,10,10,0.06);stroke-width:1}
+.chart .axis{font:500 10.5px var(--sans);fill:var(--ink-mute)}
+.chart .lbl{font:600 11px var(--sans);fill:var(--ink-1)}
+.chart .hit{fill:transparent;cursor:crosshair}
+.chart .cross{stroke:var(--ink-3);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+.chart .dot{fill:var(--flow-700);stroke:#fff;stroke-width:2;opacity:0}
+.chart .bar:hover{fill:var(--flow-700)}
+.tip{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-118%);
+  background:var(--ink);color:#fafaf6;border-radius:10px;padding:8px 11px;
+  font:500 11.5px var(--sans);white-space:nowrap;box-shadow:0 6px 20px rgba(10,10,10,.28);
+  transition:opacity .12s ease;z-index:5}
+.tip b{font-weight:600;font-size:13px;display:block}
+.tip small{color:rgba(250,250,246,.66);font-size:10.5px}
+
+/* ---- Flow controls ---- */
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:22px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.4px;color:var(--ink-mute)}
+.field select,.field input{font:500 13px var(--sans);color:var(--ink);background:var(--surface-2);
+  border:1px solid var(--hairline);border-radius:12px;padding:9px 13px;box-shadow:var(--shadow-card);min-width:190px}
+.field select:focus,.field input:focus{outline:2px solid var(--ink);outline-offset:1px}
+.btn{border:0;border-radius:999px;padding:10px 18px;font:500 13px var(--sans);cursor:pointer;
+  background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,.18);transition:transform .15s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;transform:none}
+.btn--quiet{background:rgba(10,10,10,0.05);color:var(--ink-3);box-shadow:none}
+.btn--open{background:linear-gradient(135deg,#2e6b3a,#3f8f4f)}
+.btn--close{background:linear-gradient(135deg,#7a2218,#c4302b)}
+.valvebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px;
+  padding-top:18px;border-top:1px solid var(--hairline)}
+.valvebar .note{font-size:12.5px;color:var(--ink-4);max-width:52ch}
+
+/* ---- Identity switch ---- */
+.pillgroup{display:inline-flex;background:rgba(10,10,10,0.05);border-radius:999px;padding:3px;gap:2px}
+.pillgroup button{border:0;background:transparent;font:500 12px var(--sans);color:var(--ink-4);
+  padding:6px 13px;cursor:pointer;border-radius:999px;transition:all .18s}
+.pillgroup button:hover{color:var(--ink)}
+.pillgroup button.on{background:var(--ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.15)}
+.idswitch{display:flex;align-items:center;gap:9px}
+.idswitch>span{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.5px;color:var(--ink-mute)}
+[data-copy]{cursor:copy}
+[data-copy]:hover{color:var(--flow-700);text-decoration:underline dotted}
+.copied{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);
+  color:#fafaf6;font:500 12px var(--sans);padding:9px 16px;border-radius:999px;
+  box-shadow:0 8px 26px rgba(10,10,10,.3);opacity:0;transition:opacity .18s;pointer-events:none;z-index:50}
+.copied.on{opacity:1}
+
+/* ---- Register ---- */
+.tbl input.cell{font:500 13px var(--sans);color:var(--ink);background:transparent;border:1px solid transparent;
+  border-radius:8px;padding:6px 9px;width:100%;min-width:130px;transition:all .15s}
+.tbl input.cell:hover{border-color:var(--hairline);background:rgba(10,10,10,0.02)}
+.tbl input.cell:focus{outline:0;border-color:var(--flow-500);background:var(--surface-2);
+  box-shadow:0 0 0 3px rgba(43,108,163,.12)}
+.tbl input.cell::placeholder{color:var(--ink-faint);font-weight:400}
+.tbl tr.dirty td{background:rgba(43,108,163,.05)}
+.tbl tr.dirty td:first-child{box-shadow:inset 3px 0 0 var(--flow-500)}
+.sn{font-family:var(--mono);font-size:12px;color:var(--ink-mute)}
+.zbar{display:grid;grid-template-columns:170px 1fr 54px;gap:16px;align-items:center;padding:8px 0;
+  border-bottom:1px solid var(--hairline)}
+.zbar:last-child{border-bottom:0}
+.zbar__n{font:600 13px var(--sans);color:var(--ink)}
+.zbar__n span{font-weight:500;color:var(--ink-faint)}
+.zbar__lane{height:14px;background:rgba(10,10,10,0.05);border-radius:999px;overflow:hidden}
+.zbar__fill{height:100%;border-radius:999px;background:var(--grad-flow)}
+.zbar__c{font:600 14px var(--sans);text-align:right;color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+/* ---- Full-bleed graph ---- */
+body.graphing .page{max-width:none;grid-template-columns:1fr;padding:18px 26px 26px}
+body.graphing .side{display:none}
+.gwrap{background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-card);padding:16px 18px 10px;
+  display:flex;flex-direction:column;gap:12px;height:calc(100vh - 168px);min-height:420px}
+.gbar{display:flex;flex-wrap:wrap;gap:10px 12px;align-items:flex-end}
+.gbar .grow{margin-left:auto;display:flex;gap:16px;align-items:baseline}
+.gread{text-align:right}
+.gread b{display:block;font:600 20px var(--sans);color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.1}
+.gread small{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.3px;color:var(--ink-mute)}
+.gplot{flex:1;min-height:0;position:relative}
+.gplot svg{width:100%;height:100%;display:block;touch-action:none}
+.gplot svg:focus-visible{outline:2px solid var(--ink);outline-offset:-2px;border-radius:12px}
+.gplot .axis-line{stroke:rgba(10,10,10,0.18);stroke-width:1}
+.gplot .grid{stroke:rgba(10,10,10,0.055);stroke-width:1}
+.gplot .tick{font:500 11px var(--sans);fill:var(--ink-mute)}
+.gplot .atitle{font:500 10px var(--sans);fill:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase}
+.gplot .cross{stroke:var(--ink-3);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+.gplot .cur{fill:var(--flow-700);stroke:#fff;stroke-width:2.5;opacity:0}
+.gplot .brush{fill:rgba(43,108,163,.13);stroke:var(--flow-500);stroke-width:1;opacity:0}
+.gnote{font:500 11.5px var(--sans);color:var(--ink-mute);padding:0 2px 4px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+@media (max-width:1240px){.fleet{grid-template-columns:repeat(10,1fr)}}
+@media (max-width:1100px){.page{grid-template-columns:1fr}.side{position:static;flex-direction:row;flex-wrap:wrap;gap:20px 28px}.side>div{flex:1 1 220px}}
+@media (max-width:1000px){.row-2,.row-2-eq{grid-template-columns:1fr}.pagehead{grid-template-columns:1fr}.pagehead__title{font-size:34px}}
+</style></head><body>
+
+<div class="topbar">
+  <div class="topbar__brand">
+    <img class="topbar__logo" alt="Upande" src="data:image/png;base64,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"/>
+    <div class="topbar__divider"></div>
+    <div class="topbar__product">Kiwasco<small>Smart Water Metering</small></div>
+  </div>
+  <div class="topbar__nav">
+    <a href="#" class="on">Fleet</a>
+    <a href="/app/water-meter" title="Water Meter list">Meters</a>
+    <a href="/app/meter-reading" title="Meter Reading list">Readings</a>
+    <a href="/app/meter-command" title="Meter Command list">Commands</a>
+    <a href="/app/upande-tagmeter" title="Desk workspace">Workspace</a>
+  </div>
+  <div class="topbar__right">
+    <div class="idswitch"><span>Show</span><div class="pillgroup" id="idmode">
+      <button data-mode="name">Name</button>
+      <button data-mode="both">Both</button>
+      <button data-mode="serial">Serial</button>
+    </div></div>
+    <span>{{ frappe.session.user }}</span>
+    <div class="avatar">{{ user_initials }}</div>
+  </div>
+</div>
+
+<div class="page">
+<aside class="side">
+  <div>
+    <div class="side__label">Views</div>
+    <nav class="side__nav">
+      <a class="side__link on" data-view="view-fleet"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Fleet</a>
+      <a class="side__link" data-view="view-meters"><svg viewBox="0 0 24 24"><path d="M12 2.7 6.6 9a7.4 7.4 0 1 0 10.8 0z"/></svg>Meters<span class="n" id="n-meters">–</span></a>
+      <a class="side__link" data-view="view-register"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg>Register<span class="n" id="n-named">–</span></a>
+      <a class="side__link" data-view="view-valves"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Valves<span class="n" id="n-valves">–</span></a>
+      <a class="side__link" data-view="view-flow"><svg viewBox="0 0 24 24"><path d="M3 17c2.5 0 2.5-4 5-4s2.5 4 5 4 2.5-4 5-4 2.5 4 3 4"/><path d="M3 10c2.5 0 2.5-4 5-4s2.5 4 5 4 2.5-4 5-4 2.5 4 3 4"/></svg>Flow</a>
+      <a class="side__link" data-view="view-graph"><svg viewBox="0 0 24 24"><polyline points="3 17 9 11 13 15 21 6"/><path d="M3 21h18"/><path d="M3 3v18"/></svg>Graph</a>
+      <a class="side__link" data-view="view-signal"><svg viewBox="0 0 24 24"><path d="M5 12.6a10 10 0 0 1 14 0"/><path d="M8.5 16a5.5 5.5 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/><path d="M1.5 9a15 15 0 0 1 21 0"/></svg>Signal</a>
+    </nav>
+  </div>
+  <div>
+    <div class="side__label">Fleet now</div>
+    <div class="side__stat"><small>Meters</small><b id="s-total">–</b></div>
+    <div class="side__stat"><small>Reported inside 30 h</small><b id="s-online">–</b></div>
+    <div class="side__stat"><small>Never reported</small><b id="s-never">–</b></div>
+    <div class="side__stat"><small>With an alarm</small><b id="s-alarms">–</b></div>
+  </div>
+  <div>
+    <div class="side__label">Last reported</div>
+    <div class="side__legend">
+      <span><i style="background:var(--flow-500)"></i>Under 2 hours</span>
+      <span><i style="background:var(--flow-300)"></i>2 – 12 hours</span>
+      <span><i style="background:rgba(217,150,46,.55)"></i>12 – 30 hours</span>
+      <span><i style="background:rgba(10,10,10,0.10)"></i>Over 30 hours</span>
+      <span><i style="background:repeating-linear-gradient(45deg,rgba(10,10,10,.05),rgba(10,10,10,.05) 3px,rgba(10,10,10,.14) 3px,rgba(10,10,10,.14) 6px)"></i>No reading held</span>
+      <span><i style="background:transparent;border:2px solid var(--ink);border-radius:4px"></i>Has a valve</span>
+    </div>
+  </div>
+  <div class="side__user">
+    <div class="avatar">{{ user_initials }}</div>
+    <div class="side__user-info"><b>{{ user_fullname }}</b><small>Water Metering</small></div>
+  </div>
+</aside>
+
+<div class="main">
+
+<section class="view" id="view-fleet">
+  <div class="pagehead">
+    <div>
+      <div class="pagehead__eyebrow">Kiwasco · TagMeter · tagmeter.com SMP</div>
+      <h1 class="pagehead__title">Fleet</h1>
+      <p class="pagehead__sub" id="head-sub">100 ultrasonic meters · 10 with valves · read from the vendor platform</p>
+    </div>
+    <div class="pagehead__tools">
+      <div class="datepill" id="stamp">–</div>
+      <button class="iconbtn" title="Reload" onclick="location.reload()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+    </div>
+  </div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="card card--padded">
+    <div class="card__head"><h3>Every meter, by when it last spoke</h3><div class="meta" id="fleet-meta">one cell per meter · click for detail</div></div>
+    <div class="fleet" id="fleet"></div>
+    <div class="fleet__axis"><span>Meter 1</span><span>Meter 100</span></div>
+    <div class="clegend" id="band-legend"></div>
+  </div>
+
+  <div class="card card--padded" id="detail-card">
+    <div class="card__head"><h3 id="detail-title">Pick a meter</h3><div class="meta" id="detail-meta">its full state, as the SMP last reported it</div></div>
+    <div class="detail" id="detail"></div>
+    <div id="detail-valve"></div>
+  </div>
+
+  <div class="row-2">
+    <div class="card card--padded">
+      <div class="card__head"><h3>Consumption</h3><div class="meta">cumulative volume across the fleet</div></div>
+      <div id="flow-block"></div>
+    </div>
+    <div class="card card--padded">
+      <div class="card__head"><h3>Alarms</h3><div class="meta">meters carrying each flag</div></div>
+      <div id="alarms"></div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="view-meters" hidden>
+  <div class="pagehead">
+    <div>
+      <div class="pagehead__eyebrow">Kiwasco · TagMeter</div>
+      <h1 class="pagehead__title">Meters</h1>
+      <p class="pagehead__sub">Every meter and the values behind the grid</p>
+    </div>
+    <div class="pagehead__tools"><div class="datepill" id="stamp2">–</div></div>
+  </div>
+  <div class="card card--padded"><div class="scroll"><table class="tbl" id="meter-table"></table></div></div>
+</section>
+
+<section class="view" id="view-register" hidden>
+  <div class="pagehead">
+    <div>
+      <div class="pagehead__eyebrow">Kiwasco · TagMeter · register</div>
+      <h1 class="pagehead__title">Register</h1>
+      <p class="pagehead__sub">Give each meter the name people actually use — a house, a tenant, a standpipe</p>
+    </div>
+    <div class="pagehead__tools">
+      <div class="datepill" id="r-dirty">No changes</div>
+      <button class="btn" id="r-save" disabled>Save names</button>
+    </div>
+  </div>
+
+  <div class="card card--padded">
+    <div class="controls" style="margin-bottom:0">
+      <div class="field" style="flex:1"><label for="r-find">Find</label>
+        <input type="search" id="r-find" placeholder="Name, serial, zone or site" style="width:100%"></div>
+      <div class="field"><label for="r-filter">Show</label><select id="r-filter">
+        <option value="all">All meters</option>
+        <option value="unnamed">Unnamed only</option>
+        <option value="named">Named only</option>
+        <option value="valved">Prepaid with a valve</option>
+      </select></div>
+    </div>
+  </div>
+
+  <div class="card card--padded">
+    <div class="card__head"><h3>Meters by zone</h3><div class="meta" id="zone-meta">grouping comes from the Zone column below</div></div>
+    <div id="zones"></div>
+  </div>
+
+  <div class="card card--padded">
+    <div class="card__head"><h3 id="r-count">Meters</h3><div class="meta">edit a cell, then save — the 14-digit serial stays the meter's identity</div></div>
+    <div class="scroll"><table class="tbl" id="register-table"></table></div>
+  </div>
+</section>
+
+<section class="view" id="view-valves" hidden>
+  <div class="pagehead">
+    <div>
+      <div class="pagehead__eyebrow">Kiwasco · TagMeter · Quinto Prepaid</div>
+      <h1 class="pagehead__title">Valves</h1>
+      <p class="pagehead__sub">Only these meters have a valve. The other 90 are read-only, and the SMP refuses valve commands for them.</p>
+    </div>
+    <div class="pagehead__tools"><div class="datepill" id="stamp3">–</div></div>
+  </div>
+  <div class="card card--padded">
+    <div class="card__head"><h3>Valve-capable meters</h3><div class="meta">requested vs reported · a command only reaches a meter whose session is on the SMP</div></div>
+    <div class="scroll"><table class="tbl" id="valve-table"></table></div>
+  </div>
+  <div class="card card--padded">
+    <div class="card__head"><h3>Commands</h3><div class="meta">queued means accepted by the SMP, not that the valve moved</div></div>
+    <div id="commands"></div>
+  </div>
+</section>
+
+<section class="view" id="view-flow" hidden>
+  <div class="pagehead">
+    <div>
+      <div class="pagehead__eyebrow">Kiwasco · TagMeter · consumption</div>
+      <h1 class="pagehead__title">Flow</h1>
+      <p class="pagehead__sub">Volume through one meter, and the hourly rate the meter itself recorded</p>
+    </div>
+    <div class="pagehead__tools"><div class="datepill" id="flow-stamp">–</div></div>
+  </div>
+
+  <div class="card card--padded">
+    <div class="controls">
+      <div class="field"><label for="f-meter">Meter</label><select id="f-meter"></select></div>
+      <div class="field"><label for="f-start">From</label><input type="datetime-local" id="f-start"></div>
+      <div class="field"><label for="f-end">To</label><input type="datetime-local" id="f-end"></div>
+      <button class="btn" id="f-go">Show flow</button>
+      <button class="btn btn--quiet" id="f-30">Last 30 days</button>
+      <button class="btn btn--quiet" id="f-7">Last 7 days</button>
+    </div>
+    <div class="kpi-grid" id="flow-kpis" style="margin-bottom:0"></div>
+  </div>
+
+  <div class="card card--padded">
+    <div class="card__head"><h3 id="hourly-title">Hourly flow rate</h3><div class="meta" id="hourly-meta">volume per hour, from the meter's own 24-hour window</div></div>
+    <div class="chartwrap" id="hourly-wrap"></div>
+  </div>
+
+  <div class="card card--padded">
+    <div class="card__head"><h3>Consumption per reading</h3><div class="meta" id="use-meta">volume since the previous reading</div></div>
+    <div class="chartwrap" id="use-wrap"></div>
+  </div>
+
+  <div class="card card--padded" id="flow-valve-card">
+    <div class="card__head"><h3>Valve</h3><div class="meta">acts through the same guard rails as the desk form</div></div>
+    <div id="flow-valve"></div>
+  </div>
+</section>
+
+<section class="view" id="view-graph" hidden>
+  <div class="gwrap">
+    <div class="gbar">
+      <div class="field"><label for="g-meter">Meter</label><select id="g-meter"></select></div>
+      <div class="field"><label for="g-measure">Measure</label><select id="g-measure">
+        <option value="hourly">Hourly flow rate · m³/h</option>
+        <option value="use">Consumption per reading · m³</option>
+        <option value="cum">Cumulative volume · m³</option>
+        <option value="bal">Prepaid balance · m³</option>
+        <option value="temp">Temperature · °C</option>
+        <option value="rssi">Signal · dBm</option>
+      </select></div>
+      <div class="field"><label for="g-from">From</label><input type="datetime-local" id="g-from"></div>
+      <div class="field"><label for="g-to">To</label><input type="datetime-local" id="g-to"></div>
+      <button class="btn" id="g-go">Draw</button>
+      <button class="btn btn--quiet" id="g-reset" title="Clear the zoom">Reset zoom</button>
+      <div class="grow">
+        <div class="gread"><small>Latest</small><b id="g-last">—</b></div>
+        <div class="gread"><small>Peak</small><b id="g-peak">—</b></div>
+        <div class="gread"><small>Points</small><b id="g-n">—</b></div>
+      </div>
+    </div>
+    <div class="gplot" id="g-plot"></div>
+    <div class="gnote">Drag across the plot to zoom · double-click or Reset to clear · arrow keys move the cursor</div>
+    <div class="sr" id="g-sr" aria-live="polite"></div>
+  </div>
+</section>
+
+<section class="view" id="view-signal" hidden>
+  <div class="pagehead">
+    <div>
+      <div class="pagehead__eyebrow">Kiwasco · TagMeter · radio</div>
+      <h1 class="pagehead__title">Signal</h1>
+      <p class="pagehead__sub">Received strength and noise margin on the last reading held for each meter</p>
+    </div>
+    <div class="pagehead__tools"><div class="datepill" id="stamp4">–</div></div>
+  </div>
+  <div class="row-2-eq">
+    <div class="card card--padded">
+      <div class="card__head"><h3>Strength</h3><div class="meta">RSSI band · meters with a reading</div></div>
+      <div id="signal-bands"></div>
+    </div>
+    <div class="card card--padded">
+      <div class="card__head"><h3>Weakest links</h3><div class="meta">lowest RSSI first · these drop out first</div></div>
+      <div class="scroll"><table class="tbl" id="weak-table"></table></div>
+    </div>
+  </div>
+</section>
+
+</div></div>
+
+<script>
+const TM = {{ payload | safe }};
+const CSRF = "{{ csrf_token }}";
+const CAN_COMMAND = {{ can_command }};
+const CAN_WRITE = {{ can_write }};
+{% raw %}
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = (v, d = 3) => (v == null ? "—" : Number(v).toFixed(d));
+
+// ─── How a meter is identified on screen ─────────────────────────────────────
+// Three modes, chosen by the reader. "both" is the default because someone new
+// to the fleet needs to learn which name maps to which serial; the other two
+// are for once you know it.
+//
+// The mode governs the surfaces you *scan* — tables, pickers, tooltips. Three
+// places deliberately ignore it:
+//   · the detail panel always shows both, because it is where you go to get a
+//     serial to paste into the vendor console;
+//   · the Register always shows both, since they are separate columns there;
+//   · the valve confirmation always names the serial. Labels are NOT unique —
+//     two blocks can each have a "Standpipe 4" — and closing the wrong
+//     customer's water is the worst thing this app can do, so that one dialog
+//     is never ambiguous.
+const ID_MODES = ["name", "both", "serial"];
+let nameMode = "both";
+try { const v = localStorage.getItem("tm:idmode"); if (ID_MODES.includes(v)) nameMode = v; }
+catch (e) { /* private window: fall back to the default */ }
+
+// The name, falling back to the serial so a meter is never nameless.
+const nameOf = (m) => m.display || m.label || m.sn;
+// Primary text for scanning surfaces.
+const disp = (m) => nameMode === "serial" ? m.sn : nameOf(m);
+// The serial, shown when the mode asks for it and the name is not already it.
+const showSerial = (m) => nameMode !== "name" && nameOf(m) !== m.sn;
+const copySn = (sn) => `<span class="sn" data-copy="${esc(sn)}" title="Copy serial">${esc(sn)}</span>`;
+
+function ago(h) {
+  if (h == null) return "never";
+  if (h < 1) return Math.round(h * 60) + " min ago";
+  if (h < 48) return h.toFixed(1) + " h ago";
+  return Math.round(h / 24) + " d ago";
+}
+
+// ---- header + sidebar ----
+const k = TM.kpi;
+["stamp","stamp2","stamp3","stamp4"].forEach(id => { if ($(id)) $(id).textContent = "As of " + String(TM.generated).slice(0, 16); });
+$("n-meters").textContent = k.total;
+$("n-valves").textContent = k.valved;
+$("s-total").textContent = k.total;
+$("s-online").textContent = k.online;
+$("s-never").textContent = k.never;
+$("s-alarms").textContent = k.alarms;
+$("head-sub").textContent = `${k.total} ultrasonic meters · ${k.valved} with valves · read from the vendor platform`;
+
+// ---- KPIs. Each one states a fact the data supports, and nothing more. ----
+const kpis = [
+  { label: "Meters", value: k.total, unit: `${k.valved} prepaid with a valve · ${k.total - k.valved} read-only`,
+    trend: ["flow", `${k.reported} have produced a reading`] },
+  { label: "Reporting", value: k.online, unit: "reported inside the 30-hour window",
+    trend: k.online > 0 ? ["up", `${Math.round(k.online / k.total * 100)}% of the fleet`] : ["down", "fleet is silent"] },
+  { label: "No reading held", value: k.no_data, unit: "the SMP returns an error for these",
+    trend: k.no_data ? ["warn", "no AMR record yet"] : ["up", "every meter has data"] },
+  { label: "Prepaid credit", value: num(k.credit, 3), unit: `m³ across ${k.valved} valved meters`,
+    trend: ["flow", "issued, not yet drawn"] },
+  { label: "Meters with an alarm", value: k.alarms, unit: "carrying at least one status flag",
+    trend: k.alarms ? ["warn", "mostly empty pipe"] : ["up", "all clear"] },
+];
+$("kpis").innerHTML = kpis.map(c => `
+  <div class="kpi">
+    <div class="kpi__label">${esc(c.label)}</div>
+    <div class="kpi__value">${esc(c.value)}</div>
+    <div class="kpi__unit">${esc(c.unit)}</div>
+    <div class="kpi__trend ${c.trend[0]}">${esc(c.trend[1])}</div>
+  </div>`).join("");
+
+// ---- the fleet grid ----
+const BAND_COLOUR = {
+  live: "var(--flow-500)", recent: "var(--flow-300)", stale: "rgba(217,150,46,.55)",
+  cold: "rgba(10,10,10,0.10)", never: "rgba(10,10,10,0.14)",
+};
+$("fleet").innerHTML = TM.meters.map(m => `
+  <button data-band="${m.band}" data-valved="${m.valved ? 1 : 0}" data-sn="${m.sn}"
+    aria-pressed="false" title="${esc(disp(m))} · ${esc(ago(m.hours))}${m.valved ? " · has a valve" : ""}">
+  </button>`).join("");
+$("band-legend").innerHTML = TM.bands.filter(b => b.count).map(b =>
+  `<span><i style="background:${BAND_COLOUR[b.key]}"></i>${esc(b.label)} · ${b.count}</span>`).join("");
+
+function showMeter(sn) {
+  const m = TM.meters.find(x => x.sn === sn);
+  if (!m) return;
+  document.querySelectorAll("#fleet button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.sn === sn)));
+  // Ignores the mode on purpose — see the note by ID_MODES.
+  $("detail-title").textContent = nameOf(m);
+  $("detail-meta").innerHTML = `${copySn(m.sn)} · ${esc(m.profile)}` +
+    `${m.zone ? " · " + esc(m.zone) : ""} · <a href="/app/water-meter/${encodeURIComponent(m.sn)}">open record</a>`;
+  const valveCell = m.valved
+    ? `<span class="pill ${m.valve === "Open" ? "ok" : m.valve === "Closed" ? "warn" : ""}">${esc(m.valve)}</span>`
+    : `<span class="pill">no valve</span>`;
+  const rows = [
+    ["Last reported", m.hours == null ? '<b class="muted">never</b>' : `<b>${esc(ago(m.hours))}</b>`],
+    ["Meter clock", m.last_seen ? `<b>${esc(String(m.last_seen).slice(0, 16))}</b>` : '<b class="muted">—</b>'],
+    ["Cumulative", `<b>${num(m.flow)} <span style="font-weight:500;color:var(--ink-mute);font-size:13px">m³</span></b>`],
+    ["Prepaid balance", m.valved ? `<b>${num(m.balance)} <span style="font-weight:500;color:var(--ink-mute);font-size:13px">m³</span></b>` : '<b class="muted">n/a</b>'],
+    ["Valve", `<b>${valveCell}</b>`],
+    ["Temperature", m.temp == null ? '<b class="muted">—</b>' : `<b>${num(m.temp, 1)} °C</b>`],
+    ["Signal", m.rssi == null ? '<b class="muted">—</b>' : `<b>${m.rssi} dBm</b>`],
+    ["Noise margin", m.snr == null ? '<b class="muted">—</b>' : `<b>${num(m.snr, 1)} dB</b>`],
+    ["Status bytes", m.raw ? `<b style="font-family:var(--mono);font-size:15px">${esc(m.raw)}</b>` : '<b class="muted">—</b>'],
+    ["Last poll", `<b>${esc(m.outcome || "—")}</b>`],
+    ["DevEUI", m.dev_eui ? `<b style="font-family:var(--mono);font-size:13px">${esc(m.dev_eui)}</b>` : '<b class="muted">—</b>'],
+    ["Alarms", m.alarms.length ? `<b>${m.alarms.map(a => `<span class="pill warn">${esc(a)}</span>`).join(" ")}</b>` : '<b class="muted">none</b>'],
+  ];
+  $("detail").innerHTML = rows.map(([lbl, val]) => `<div><small>${esc(lbl)}</small>${val}</div>`).join("");
+  valveUI("detail-valve", m);
+}
+$("fleet").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (btn) showMeter(btn.dataset.sn);
+});
+showMeter((TM.meters.find(m => m.band === "live") || TM.meters[0]).sn);
+
+// ---- consumption: say the truth rather than draw a flat line ----
+$("flow-block").innerHTML = k.flowing === 0
+  ? `<div class="empty"><b>No water has passed any meter yet.</b> Cumulative volume reads
+     <b>0.000 m³</b> on all ${k.total}, and the empty-pipe flag is set almost everywhere —
+     the fleet is installed and reporting, but not in service. Consumption charts will mean
+     something once the first meter records flow; until then a chart here would only draw
+     a straight line at zero.</div>`
+  : `<div class="kpi__value">${num(k.total_flow)}</div>
+     <div class="kpi__unit">m³ total · ${k.flowing} of ${k.total} meters have recorded flow</div>`;
+
+// ---- alarms ----
+const maxAlarm = Math.max(1, ...TM.alarm_counts.map(a => a.count));
+$("alarms").innerHTML = TM.alarm_counts.length
+  ? TM.alarm_counts.map(a => `
+      <div class="hb">
+        <div class="hb__name">${esc(a.label)}</div>
+        <div class="hb__lane"><div class="hb__act" style="width:${a.count / maxAlarm * 100}%;background:var(--grad-flow)"></div></div>
+        <div class="hb__pct">${a.count}</div>
+      </div>`).join("")
+  : `<div class="empty">No meter is carrying a status flag.</div>`;
+
+// ---- meters table ----
+function table(el, cols, rows) {
+  $(el).innerHTML =
+    `<thead><tr>${cols.map(c => `<th class="${c.num ? "num" : ""}">${esc(c.h)}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows.map(r => `<tr>${cols.map(c => `<td class="${c.num ? "num" : ""}">${c.f(r)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+}
+const link = m => `<a href="/app/water-meter/${encodeURIComponent(m.sn)}"><b>${esc(disp(m))}</b></a>` +
+  (showSerial(m) && nameMode === "both" ? `<div>${copySn(m.sn)}</div>` : "");
+
+function fillPickers() {
+  const opts = TM.meters.slice()
+    .sort((a, b) => (a.hours == null) - (b.hours == null) || a.hours - b.hours)
+    .map(m => {
+      const id = nameMode === "both" && showSerial(m) ? `${disp(m)} · ${m.sn}` : disp(m);
+      return `<option value="${esc(m.sn)}">${esc(id)} · ${m.valved ? "Quinto" : "AMR"} · ${esc(ago(m.hours))}</option>`;
+    })
+    .join("");
+  for (const id of ["f-meter", "g-meter"]) {
+    const s2 = $(id); if (!s2) continue;
+    const keep = s2.value; s2.innerHTML = opts; if (keep) s2.value = keep;
+  }
+}
+function fleetTitles() {
+  document.querySelectorAll("#fleet button").forEach(b => {
+    const m = TM.meters.find(x => x.sn === b.dataset.sn); if (!m) return;
+    // Tooltips have room, so "both" is free here whenever there is a name.
+    b.title = `${disp(m)}${showSerial(m) ? " · " + m.sn : ""} · ${ago(m.hours)}` +
+      `${m.valved ? " · has a valve" : ""}`;
+  });
+}
+function renderTables() {
+table("meter-table", [
+  { h: "Meter", f: link },
+  { h: "#", num: true, f: m => m.idx },
+  { h: "Profile", f: m => m.valved ? '<span class="pill flow">Quinto</span>' : '<span class="pill">AMR</span>' },
+  { h: "Last reported", f: m => m.hours == null ? '<span style="color:var(--ink-faint)">never</span>' : esc(ago(m.hours)) },
+  { h: "Cumulative m³", num: true, f: m => num(m.flow) },
+  { h: "Balance m³", num: true, f: m => m.valved ? num(m.balance) : "—" },
+  { h: "Valve", f: m => m.valved ? esc(m.valve) : '<span style="color:var(--ink-faint)">none</span>' },
+  { h: "°C", num: true, f: m => m.temp == null ? "—" : num(m.temp, 1) },
+  { h: "RSSI", num: true, f: m => m.rssi == null ? "—" : m.rssi },
+  { h: "Bytes", f: m => m.raw ? `<span style="font-family:var(--mono)">${esc(m.raw)}</span>` : "—" },
+  { h: "Alarms", f: m => m.alarms.length ? esc(m.alarms.join(", ")) : '<span style="color:var(--ink-faint)">none</span>' },
+], TM.meters);
+
+const valved = TM.meters.filter(m => m.valved);
+table("valve-table", [
+  { h: "Meter", f: link },
+  { h: "Reported", f: m => `<span class="pill ${m.valve === "Open" ? "ok" : m.valve === "Closed" ? "warn" : ""}">${esc(m.valve)}</span>` },
+  { h: "Requested", f: m => m.valve_desired && m.valve_desired !== "Unknown" ? esc(m.valve_desired) : '<span style="color:var(--ink-faint)">—</span>' },
+  { h: "In flight", f: m => m.in_flight ? `<a href="/app/meter-command/${encodeURIComponent(m.in_flight)}">${esc(m.in_flight)}</a>` : '<span style="color:var(--ink-faint)">—</span>' },
+  { h: "Balance m³", num: true, f: m => num(m.balance) },
+  { h: "Last reported", f: m => esc(ago(m.hours)) },
+  { h: "Reachable", f: m => m.online
+      ? '<span class="pill ok">on the SMP</span>'
+      : '<span class="pill bad">not reachable</span>' },
+], valved);
+
+table("weak-table", [
+  { h: "Meter", f: link },
+  { h: "RSSI", num: true, f: m => m.rssi },
+  { h: "SNR", num: true, f: m => num(m.snr, 1) },
+  { h: "Last reported", f: m => esc(ago(m.hours)) },
+], TM.meters.filter(m => m.rssi != null).sort((a, b) => a.rssi - b.rssi).slice(0, 12));
+}
+renderTables();
+function refreshNames() { renderTables(); fillPickers(); fleetTitles();
+  const cur = document.querySelector('#fleet button[aria-pressed="true"]');
+  if (cur) showMeter(cur.dataset.sn); }
+
+$("commands").innerHTML = TM.commands.length
+  ? TM.commands.map(c => `
+      <div class="hb" style="grid-template-columns:190px 1fr 110px">
+        <div class="hb__name"><a href="/app/meter-command/${encodeURIComponent(c.name)}">${esc(c.name)}</a></div>
+        <div style="font-size:13px;color:var(--ink-4)">${esc(c.command_type)} → ${esc(c.requested_state)} ·
+          ${esc(c.water_meter)} · attempt ${c.attempts} · ${esc(String(c.enqueued_at).slice(0, 16))}</div>
+        <div style="text-align:right"><span class="pill ${
+          c.status === "Confirmed" ? "ok" : c.status === "Queued" ? "warn" : "bad"}">${esc(c.status)}</span></div>
+      </div>`).join("")
+  : `<div class="empty">No valve command has been issued yet. Open a Quinto meter in the desk and use the valve toggle.</div>`;
+
+// ---- signal ----
+const maxSig = Math.max(1, ...TM.signal.map(s => s.count));
+$("signal-bands").innerHTML = TM.signal.map(s => `
+  <div class="hb">
+    <div class="hb__name">${esc(s.label)}</div>
+    <div class="hb__lane"><div class="hb__act" style="width:${s.count / maxSig * 100}%;background:${
+      s.key === "strong" ? "linear-gradient(90deg,#1b4a73,#2b6ca3)"
+      : s.key === "fair" ? "linear-gradient(90deg,#2b6ca3,#6ea9d8)"
+      : "linear-gradient(90deg,#9a5a00,#d9962e)"}"></div></div>
+    <div class="hb__pct">${s.count}</div>
+  </div>`).join("") +
+  `<div class="clegend"><span>Averages ${k.avg_rssi == null ? "—" : k.avg_rssi + " dBm"} across ${k.reported} meters holding a reading.</span></div>`;
+
+table("weak-table", [
+  { h: "Meter", f: link },
+  { h: "RSSI", num: true, f: m => m.rssi },
+  { h: "SNR", num: true, f: m => num(m.snr, 1) },
+  { h: "Last reported", f: m => esc(ago(m.hours)) },
+], TM.meters.filter(m => m.rssi != null).sort((a, b) => a.rssi - b.rssi).slice(0, 12));
+
+
+// ─── Charts ──────────────────────────────────────────────────────────────────
+// Single series each, so no legend: the card title names the measure. Stroke
+// colours are contrast-checked against the card surface — #2b6ca3 is 5.56:1,
+// #1b4a73 is 9.24:1. #6ea9d8 measures 2.52:1, which is too weak to carry a
+// mark, so it appears only inside the gradient fill under a darker line.
+const CH = { stroke: "#2b6ca3", emph: "#1b4a73", W: 820, H: 260, PAD: { l: 52, r: 18, t: 22, b: 34 } };
+
+function niceTop(max) {
+  if (max <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(max)));
+  return Math.ceil(max / mag * 2) / 2 * mag;
+}
+const fmtT = (t) => String(t).slice(11, 16) || String(t).slice(5, 10);
+const fmtD = (t) => String(t).slice(5, 10);
+
+function mount(wrapId, svg) {
+  const wrap = $(wrapId);
+  wrap.innerHTML = svg + '<div class="tip"></div>';
+  return wrap;
+}
+
+function hover(wrap, pts, xOf, yOf, render) {
+  const svg = wrap.querySelector("svg"), tip = wrap.querySelector(".tip");
+  const cross = svg.querySelector(".cross"), dot = svg.querySelector(".dot");
+  const show = (i) => {
+    const p = pts[i];
+    if (!p) return;
+    const rect = svg.getBoundingClientRect(), scale = rect.width / CH.W;
+    if (cross) { cross.setAttribute("x1", xOf(i)); cross.setAttribute("x2", xOf(i)); cross.style.opacity = 1; }
+    if (dot) { dot.setAttribute("cx", xOf(i)); dot.setAttribute("cy", yOf(p.v)); dot.style.opacity = 1; }
+    tip.innerHTML = render(p);
+    tip.style.left = (xOf(i) * scale) + "px";
+    tip.style.top = (yOf(p.v) * scale) + "px";
+    tip.style.opacity = 1;
+  };
+  const hide = () => { tip.style.opacity = 0; if (cross) cross.style.opacity = 0; if (dot) dot.style.opacity = 0; };
+  svg.addEventListener("pointermove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * CH.W;
+    const inner = CH.W - CH.PAD.l - CH.PAD.r;
+    let i = Math.round((x - CH.PAD.l) / inner * (pts.length - 1));
+    i = Math.max(0, Math.min(pts.length - 1, i));
+    show(i);
+  });
+  svg.addEventListener("pointerleave", hide);
+}
+
+function areaChart(wrapId, pts, unit, xlabel) {
+  if (!pts.length) { $(wrapId).innerHTML = '<div class="empty">No readings in this range.</div>'; return; }
+  const { W, H, PAD } = CH, iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
+  const top = niceTop(Math.max(...pts.map(p => p.v)));
+  const xOf = (i) => PAD.l + (pts.length === 1 ? iw / 2 : i / (pts.length - 1) * iw);
+  const yOf = (v) => PAD.t + ih - (v / top) * ih;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${xOf(i).toFixed(1)},${yOf(p.v).toFixed(1)}`).join("");
+  const area = `${line}L${xOf(pts.length - 1).toFixed(1)},${PAD.t + ih}L${xOf(0).toFixed(1)},${PAD.t + ih}Z`;
+  const grid = [0, 0.5, 1].map(f => {
+    const y = PAD.t + ih - f * ih;
+    return `<line class="grid" x1="${PAD.l}" y1="${y}" x2="${W - PAD.r}" y2="${y}"/>` +
+           `<text class="axis" x="${PAD.l - 9}" y="${y + 3.5}" text-anchor="end">${(top * f).toFixed(top < 2 ? 2 : 0)}</text>`;
+  }).join("");
+  // Label only the peak and the last point — a number on every point is noise.
+  const peak = pts.reduce((a, p, i) => p.v > pts[a].v ? i : a, 0);
+  const marks = [...new Set([peak, pts.length - 1])].filter(i => pts[i].v > 0).map(i =>
+    `<circle cx="${xOf(i)}" cy="${yOf(pts[i].v)}" r="4.5" fill="${CH.stroke}" stroke="#fff" stroke-width="2"/>
+     <text class="lbl" x="${xOf(i)}" y="${yOf(pts[i].v) - 11}" text-anchor="middle">${pts[i].v}</text>`).join("");
+  const ticks = pts.map((p, i) => ({ p, i }))
+    .filter((_, i) => i % Math.ceil(pts.length / 7) === 0)
+    .map(({ p, i }) => `<text class="axis" x="${xOf(i)}" y="${H - 10}" text-anchor="middle">${xlabel(p.t)}</text>`).join("");
+  mount(wrapId, `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${pts.length} points, peak ${pts[peak].v} ${unit}">
+    <defs><linearGradient id="g-${wrapId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6ea9d8" stop-opacity=".38"/>
+      <stop offset="100%" stop-color="#6ea9d8" stop-opacity="0"/></linearGradient></defs>
+    ${grid}
+    <path d="${area}" fill="url(#g-${wrapId})"/>
+    <path d="${line}" fill="none" stroke="${CH.stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${marks}${ticks}
+    <line class="cross" y1="${PAD.t}" y2="${PAD.t + ih}"/>
+    <circle class="dot" r="5"/>
+  </svg>`);
+  hover($(wrapId), pts, xOf, yOf, p => `<b>${p.v} ${unit}</b><small>${String(p.t).replace("T", " ").slice(0, 16)}</small>`);
+}
+
+function barChart(wrapId, pts, unit) {
+  if (!pts.length) { $(wrapId).innerHTML = '<div class="empty">No readings in this range.</div>'; return; }
+  const { W, H, PAD } = CH, iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
+  const top = niceTop(Math.max(...pts.map(p => p.v)));
+  const slot = iw / pts.length, bw = Math.max(3, Math.min(34, slot - 3)); // 2px+ surface gap
+  const xOf = (i) => PAD.l + slot * i + slot / 2;
+  const yOf = (v) => PAD.t + ih - (v / top) * ih;
+  const grid = [0, 0.5, 1].map(f => {
+    const y = PAD.t + ih - f * ih;
+    return `<line class="grid" x1="${PAD.l}" y1="${y}" x2="${W - PAD.r}" y2="${y}"/>` +
+           `<text class="axis" x="${PAD.l - 9}" y="${y + 3.5}" text-anchor="end">${(top * f).toFixed(top < 2 ? 2 : 0)}</text>`;
+  }).join("");
+  // Rounded data-end only, anchored to the baseline.
+  const bars = pts.map((p, i) => {
+    const h = Math.max(0, PAD.t + ih - yOf(p.v)), x = xOf(i) - bw / 2, y = yOf(p.v), r = Math.min(4, h, bw / 2);
+    if (h <= 0.4) return "";
+    return `<path class="bar" fill="${CH.stroke}" d="M${x},${PAD.t + ih}V${y + r}a${r},${r} 0 0 1 ${r},-${r}h${bw - 2 * r}a${r},${r} 0 0 1 ${r},${r}V${PAD.t + ih}Z"/>`;
+  }).join("");
+  const ticks = pts.map((p, i) => ({ p, i }))
+    .filter((_, i) => i % Math.ceil(pts.length / 8) === 0)
+    .map(({ p, i }) => `<text class="axis" x="${xOf(i)}" y="${H - 10}" text-anchor="middle">${fmtD(p.t)}</text>`).join("");
+  mount(wrapId, `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${pts.length} readings">
+    ${grid}${bars}${ticks}<line class="cross" y1="${PAD.t}" y2="${PAD.t + ih}"/>
+  </svg>`);
+  hover($(wrapId), pts, xOf, yOf, p => `<b>${p.v} ${unit}</b><small>${String(p.t).replace("T", " ").slice(0, 16)}</small>`);
+}
+
+// ─── Valve control ───────────────────────────────────────────────────────────
+async function call(method, args) {
+  const res = await fetch("/api/method/" + method, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": CSRF },
+    body: JSON.stringify(args),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = (body._server_messages && JSON.parse(body._server_messages)[0]) || body.exception || res.statusText;
+    throw new Error(typeof detail === "string" ? detail.replace(/^\{.*?"message":\s*"/, "").replace(/".*\}$/, "") : detail);
+  }
+  return body.message;
+}
+
+function valveUI(elId, m) {
+  const el = $(elId);
+  if (!el) return;
+  if (!m.valved) {
+    el.innerHTML = `<div class="valvebar"><span class="note">This meter has no valve. The SMP refuses
+      valve commands for the ${TM.kpi.total - TM.kpi.valved} read-only meters.</span></div>`;
+    return;
+  }
+  const flight = m.in_flight;
+  const reachable = m.online;
+  el.innerHTML = `<div class="valvebar">
+      <button class="btn btn--open" data-act="open" ${flight || !CAN_COMMAND ? "disabled" : ""}>Open valve</button>
+      <button class="btn btn--close" data-act="close" ${flight || !CAN_COMMAND ? "disabled" : ""}>Close valve</button>
+      <span class="note">${
+        !CAN_COMMAND ? "You do not have permission to issue commands."
+        : flight ? `Command <b>${esc(flight)}</b> is already in flight. Two competing downlinks make the outcome ambiguous, so a second is refused until this one confirms or expires.`
+        : reachable ? "The meter answers only in scheduled ping slots, so a command can take hours to confirm."
+        : "This meter has not reported recently, so a command will sit queued until it comes back."
+      }</span></div>`;
+  el.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", async () => {
+    const act = b.dataset.act;
+    // Always the serial, whatever the display mode: labels are not unique.
+    const who = nameOf(m) === m.sn ? m.sn : `${nameOf(m)} (${m.sn})`;
+    if (!confirm(`Ask meter ${who} to ${act} its valve?\n\nThe SMP accepts this immediately, but that only means it was queued — not that the valve moved.`)) return;
+    el.querySelectorAll("button").forEach(x => x.disabled = true);
+    try {
+      const r = await call("upande_tagmeter.valve.set_valve", { water_meter: m.sn, action: act });
+      alert(r.status === "Rejected"
+        ? `The SMP refused it: ${r.message}`
+        : `Command ${r.command} queued. It stays queued until a reading shows the valve in that state.`);
+      location.reload();
+    } catch (err) {
+      alert("Could not queue the command:\n\n" + err.message);
+      el.querySelectorAll("button").forEach(x => x.disabled = false);
+    }
+  }));
+}
+
+// ─── Flow view ───────────────────────────────────────────────────────────────
+const sel = $("f-meter");
+
+const isoLocal = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+function setRange(days) {
+  const end = new Date();
+  $("f-end").value = isoLocal(end);
+  $("f-start").value = isoLocal(new Date(end.getTime() - days * 864e5));
+}
+setRange(30);
+
+async function loadFlow() {
+  const sn = sel.value;
+  $("f-go").disabled = true; $("f-go").textContent = "Loading…";
+  try {
+    const d = await call("upande_tagmeter.api.flow_series", {
+      meter_sn: sn, start: $("f-start").value.replace("T", " "), end: $("f-end").value.replace("T", " "),
+    });
+    $("flow-stamp").textContent = `${d.readings.length} readings · ${esc(sn)}`;
+    const t = d.totals;
+    $("flow-kpis").innerHTML = [
+      ["Daily flow", t.day, "last 24 hours"],
+      ["Weekly flow", t.week, "last 7 days"],
+      ["Monthly flow", t.month, "last 30 days"],
+      ["Selected range", t.range, `${d.readings.length} readings`],
+    ].map(([l, v, u]) => `<div class="kpi"><div class="kpi__label">${esc(l)}</div>
+        <div class="kpi__value">${num(v)}</div><div class="kpi__unit">m³ · ${esc(u)}</div></div>`).join("");
+
+    if (!d.has_flow) {
+      const msg = `<div class="empty"><b>No flow recorded in this window.</b> Every reading for
+        ${esc(sn)} returns 0.000 m³, and the meter's own hourly window is empty too — it is
+        installed and reporting, but no water has passed it. This chart fills in as soon as the
+        first hour records volume.</div>`;
+      $("hourly-wrap").innerHTML = msg;
+      $("use-wrap").innerHTML = msg;
+    } else {
+      areaChart("hourly-wrap", d.hourly.map(h => ({ t: h.t, v: h.v })), "m³/h", fmtT);
+      barChart("use-wrap", d.readings.map(r => ({ t: r.t, v: r.use || 0 })), "m³");
+    }
+    $("hourly-meta").textContent = d.hourly_from
+      ? `24-hour window from the reading at ${String(d.hourly_from).slice(0, 16)}`
+      : "no hourly window held for this meter";
+    $("use-meta").textContent = `${d.readings.length} readings between ${String(d.start).slice(0, 16)} and ${String(d.end).slice(0, 16)}`;
+    valveUI("flow-valve", TM.meters.find(m => m.sn === sn) || {});
+  } catch (err) {
+    $("flow-kpis").innerHTML = `<div class="empty">Could not load flow: ${esc(err.message)}</div>`;
+  } finally {
+    $("f-go").disabled = false; $("f-go").textContent = "Show flow";
+  }
+}
+$("f-go").addEventListener("click", loadFlow);
+sel.addEventListener("change", loadFlow);
+$("f-30").addEventListener("click", () => { setRange(30); loadFlow(); });
+$("f-7").addEventListener("click", () => { setRange(7); loadFlow(); });
+let flowLoaded = false;
+
+
+// ─── Full-screen interactive line chart ──────────────────────────────────────
+// Drawn in real pixels sized to its container rather than a scaled viewBox, so
+// tick text stays 11px whatever the viewport does. Single series, so no legend:
+// the measure picker names it. Stroke is #2b6ca3 (5.56:1 on this surface).
+const NS = "http://www.w3.org/2000/svg";
+const el = (n, a = {}) => { const e = document.createElementNS(NS, n);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+const toMs = (t) => {
+  if (t == null) return NaN;
+  const s = String(t);
+  return new Date(s.includes("T") ? s : s.replace(" ", "T")).getTime();
+};
+
+function niceTicks(lo, hi, want) {
+  if (!isFinite(lo) || !isFinite(hi)) return [0, 1];
+  if (hi === lo) { hi = lo + 1; }
+  const raw = (hi - lo) / want;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step / 1e6; v += step) out.push(+v.toFixed(10));
+  return out.length ? out : [lo, hi];
+}
+function timeFmt(spanMs) {
+  if (spanMs < 36e5 * 6) return (d) => d.toTimeString().slice(0, 5);
+  if (spanMs < 864e5 * 3) return (d) => d.toTimeString().slice(0, 5) + "\n" + d.toDateString().slice(4, 10);
+  return (d) => d.toDateString().slice(4, 10);
+}
+
+class LineChart {
+  constructor(hostId, srId) {
+    this.host = $(hostId); this.sr = $(srId);
+    this.pts = []; this.unit = ""; this.label = "";
+    this.lo = 0; this.hi = 0;           // zoom window, as indices
+    this.cursor = -1;
+    this.svg = el("svg", { tabindex: "0", role: "img" });
+    this.tip = document.createElement("div"); this.tip.className = "tip";
+    this.host.innerHTML = ""; this.host.appendChild(this.svg); this.host.appendChild(this.tip);
+    this._bind();
+    if (window.ResizeObserver) new ResizeObserver(() => this.draw()).observe(this.host);
+    else window.addEventListener("resize", () => this.draw());
+  }
+  setData(pts, unit, label) {
+    this.pts = pts.filter(p => isFinite(p.x) && p.v != null);
+    this.unit = unit; this.label = label;
+    this.lo = 0; this.hi = Math.max(0, this.pts.length - 1); this.cursor = -1;
+    this.draw();
+  }
+  view() { return this.pts.slice(this.lo, this.hi + 1); }
+  reset() { this.lo = 0; this.hi = Math.max(0, this.pts.length - 1); this.draw(); }
+
+  _geom() {
+    const w = this.host.clientWidth || 900, h = this.host.clientHeight || 460;
+    return { w, h, l: 68, r: 26, t: 20, b: 46 };
+  }
+  _scales() {
+    const g = this._geom(), v = this.view();
+    const xs = v.map(p => p.x), ys = v.map(p => p.v);
+    let lo = Math.min(...ys), hi = Math.max(...ys);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    if (Math.min(...ys) >= 0 && lo < 0) lo = 0;   // volumes never go below zero
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    return {
+      g, v, x0, x1, lo, hi,
+      X: (x) => g.l + (x1 === x0 ? (g.w - g.l - g.r) / 2 : (x - x0) / (x1 - x0) * (g.w - g.l - g.r)),
+      Y: (y) => g.t + (g.h - g.t - g.b) - (y - lo) / (hi - lo) * (g.h - g.t - g.b),
+    };
+  }
+  draw() {
+    const svg = this.svg; svg.innerHTML = "";
+    if (!this.pts.length) return;
+    const s = this._scales(), { g } = s;
+    svg.setAttribute("viewBox", `0 0 ${g.w} ${g.h}`);
+    svg.setAttribute("aria-label",
+      `${this.label}: ${s.v.length} points, ${s.v[s.v.length - 1].v} ${this.unit} latest`);
+    const bottom = g.h - g.b;
+
+    for (const ty of niceTicks(s.lo, s.hi, 6)) {
+      const y = s.Y(ty);
+      if (y < g.t - 1 || y > bottom + 1) continue;
+      svg.appendChild(el("line", { class: "grid", x1: g.l, y1: y, x2: g.w - g.r, y2: y }));
+      const tx = el("text", { class: "tick", x: g.l - 10, y: y + 3.5, "text-anchor": "end" });
+      tx.textContent = String(+ty.toFixed(Math.abs(ty) < 10 ? 2 : 0));
+      svg.appendChild(tx);
+    }
+    const fmt = timeFmt(s.x1 - s.x0);
+    const want = Math.max(2, Math.min(9, Math.floor((g.w - g.l - g.r) / 110)));
+    for (let i = 0; i < want; i++) {
+      const xv = s.x0 + (s.x1 - s.x0) * (want === 1 ? 0.5 : i / (want - 1));
+      const x = s.X(xv);
+      svg.appendChild(el("line", { class: "grid", x1: x, y1: g.t, x2: x, y2: bottom, opacity: .5 }));
+      fmt(new Date(xv)).split("\n").forEach((line, k) => {
+        const tx = el("text", { class: "tick", x, y: bottom + 20 + k * 13, "text-anchor": "middle" });
+        tx.textContent = line; svg.appendChild(tx);
+      });
+    }
+    svg.appendChild(el("line", { class: "axis-line", x1: g.l, y1: bottom, x2: g.w - g.r, y2: bottom }));
+    svg.appendChild(el("line", { class: "axis-line", x1: g.l, y1: g.t, x2: g.l, y2: bottom }));
+    const yt = el("text", { class: "atitle", transform: `translate(16 ${(g.t + bottom) / 2}) rotate(-90)`, "text-anchor": "middle" });
+    yt.textContent = this.unit; svg.appendChild(yt);
+
+    const d = s.v.map((p, i) => `${i ? "L" : "M"}${s.X(p.x).toFixed(1)},${s.Y(p.v).toFixed(1)}`).join("");
+    svg.appendChild(el("path", { d, fill: "none", stroke: CH.stroke, "stroke-width": 2,
+      "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    // Point markers only on a sparse series, and at 8px so they are a real
+    // mark rather than a speck. Denser than that they merge into the line and
+    // add noise; the crosshair still finds any point by nearest-X.
+    if (s.v.length <= 24) {
+      for (const p of s.v) svg.appendChild(el("circle", { cx: s.X(p.x), cy: s.Y(p.v), r: 4,
+        fill: CH.stroke, stroke: "#fff", "stroke-width": 1.5 }));
+    }
+    svg.appendChild(el("rect", { class: "brush", x: 0, y: g.t, width: 0, height: bottom - g.t }));
+    svg.appendChild(el("line", { class: "cross", x1: 0, x2: 0, y1: g.t, y2: bottom }));
+    svg.appendChild(el("circle", { class: "cur", r: 5.5 }));
+    this._s = s;
+    if (this.cursor >= 0) this._point(this.cursor);
+  }
+  _nearest(clientX) {
+    const s = this._s; if (!s) return -1;
+    const rect = this.svg.getBoundingClientRect();
+    const x = (clientX - rect.left) / rect.width * s.g.w;
+    let best = 0, bd = Infinity;
+    s.v.forEach((p, i) => { const dd = Math.abs(s.X(p.x) - x); if (dd < bd) { bd = dd; best = i; } });
+    return best;
+  }
+  _point(i) {
+    const s = this._s; if (!s || !s.v[i]) return;
+    this.cursor = i;
+    const p = s.v[i], x = s.X(p.x), y = s.Y(p.v);
+    const cross = this.svg.querySelector(".cross"), cur = this.svg.querySelector(".cur");
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.style.opacity = 1;
+    cur.setAttribute("cx", x); cur.setAttribute("cy", y); cur.style.opacity = 1;
+    // Values lead, label follows. textContent, never innerHTML: these strings
+    // come from the API.
+    this.tip.textContent = "";
+    const b = document.createElement("b"); b.textContent = `${p.v} ${this.unit}`;
+    const sm = document.createElement("small");
+    sm.textContent = new Date(p.x).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    this.tip.appendChild(b); this.tip.appendChild(sm);
+    const rect = this.svg.getBoundingClientRect(), k = rect.width / s.g.w;
+    this.tip.style.left = (x * k) + "px";
+    this.tip.style.top = (y * k) + "px";
+    this.tip.style.opacity = 1;
+    if (this.sr) this.sr.textContent = `${p.v} ${this.unit} at ${new Date(p.x).toLocaleString()}`;
+  }
+  _hide() { this.tip.style.opacity = 0;
+    const c = this.svg.querySelector(".cross"), u = this.svg.querySelector(".cur");
+    if (c) c.style.opacity = 0; if (u) u.style.opacity = 0; }
+
+  _bind() {
+    let dragFrom = null;
+    const brush = () => this.svg.querySelector(".brush");
+    this.svg.addEventListener("pointermove", (e) => {
+      if (!this._s) return;
+      if (dragFrom != null) {
+        const s = this._s, rect = this.svg.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width * s.g.w;
+        const b = brush(); if (!b) return;
+        b.setAttribute("x", Math.min(dragFrom, x)); b.setAttribute("width", Math.abs(x - dragFrom));
+        b.style.opacity = 1; this._hide();
+        return;
+      }
+      this._point(this._nearest(e.clientX));
+    });
+    this.svg.addEventListener("pointerleave", () => { if (dragFrom == null) this._hide(); });
+    this.svg.addEventListener("pointerdown", (e) => {
+      if (!this._s) return;
+      const rect = this.svg.getBoundingClientRect();
+      dragFrom = (e.clientX - rect.left) / rect.width * this._s.g.w;
+      this.svg.setPointerCapture(e.pointerId);
+    });
+    this.svg.addEventListener("pointerup", (e) => {
+      if (dragFrom == null || !this._s) return;
+      const s = this._s, rect = this.svg.getBoundingClientRect();
+      const to = (e.clientX - rect.left) / rect.width * s.g.w;
+      const b = brush(); if (b) { b.style.opacity = 0; b.setAttribute("width", 0); }
+      // A click is not a zoom. Below ~10px it was a tap, so leave the range alone.
+      if (Math.abs(to - dragFrom) > 10) {
+        const a = this._nearestX(Math.min(dragFrom, to)), z = this._nearestX(Math.max(dragFrom, to));
+        if (z - a >= 1) { const base = this.lo; this.hi = base + z; this.lo = base + a; this.draw(); }
+      }
+      dragFrom = null;
+    });
+    this.svg.addEventListener("dblclick", () => this.reset());
+    this.svg.addEventListener("keydown", (e) => {
+      const n = this.view().length; if (!n) return;
+      let i = this.cursor < 0 ? n - 1 : this.cursor;
+      if (e.key === "ArrowRight") i = Math.min(n - 1, i + 1);
+      else if (e.key === "ArrowLeft") i = Math.max(0, i - 1);
+      else if (e.key === "Home") i = 0;
+      else if (e.key === "End") i = n - 1;
+      else if (e.key === "Escape") { this.reset(); this._hide(); return; }
+      else return;
+      e.preventDefault(); this._point(i);
+    });
+  }
+  _nearestX(px) {
+    const s = this._s; let best = 0, bd = Infinity;
+    s.v.forEach((p, i) => { const dd = Math.abs(s.X(p.x) - px); if (dd < bd) { bd = dd; best = i; } });
+    return best;
+  }
+}
+
+// ─── Graph view wiring ───────────────────────────────────────────────────────
+let chart = null, graphLoaded = false;
+const MEASURES = {
+  hourly: { unit: "m³/h", label: "Hourly flow rate", src: "hourly" },
+  use:    { unit: "m³",   label: "Consumption per reading", src: "use" },
+  cum:    { unit: "m³",   label: "Cumulative volume", src: "cum" },
+  bal:    { unit: "m³",   label: "Prepaid balance", src: "bal" },
+  temp:   { unit: "°C",   label: "Temperature", src: "temp" },
+  rssi:   { unit: "dBm",  label: "Signal strength", src: "rssi" },
+};
+fillPickers();
+function gRange(days) {
+  const end = new Date();
+  $("g-to").value = isoLocal(end);
+  $("g-from").value = isoLocal(new Date(end.getTime() - days * 864e5));
+}
+gRange(30);
+
+async function loadGraph() {
+  if (!chart) chart = new LineChart("g-plot", "g-sr");
+  const sn = $("g-meter").value, key = $("g-measure").value, m = MEASURES[key];
+  $("g-go").disabled = true; $("g-go").textContent = "Loading…";
+  try {
+    const d = await call("upande_tagmeter.api.flow_series", {
+      meter_sn: sn, start: $("g-from").value.replace("T", " "), end: $("g-to").value.replace("T", " "),
+    });
+    const pts = key === "hourly"
+      ? d.hourly.map(h => ({ x: toMs(h.t), v: h.v }))
+      : d.readings.map(r => ({ x: toMs(r.t), v: r[m.src] })).filter(p => p.v != null);
+    chart.setData(pts, m.unit, `${m.label} · ${sn}`);
+    const vals = pts.map(p => p.v);
+    $("g-last").textContent = pts.length ? `${pts[pts.length - 1].v} ${m.unit}` : "—";
+    $("g-peak").textContent = pts.length ? `${Math.max(...vals)} ${m.unit}` : "—";
+    $("g-n").textContent = pts.length || "—";
+    if (!pts.length) {
+      $("g-plot").innerHTML = `<div class="empty" style="margin:24px 0"><b>Nothing to plot.</b>
+        ${esc(sn)} has no ${esc(m.label.toLowerCase())} in this range. Widen the dates, or pick a
+        meter that has reported.</div>`;
+      chart = null;
+    }
+  } catch (err) {
+    $("g-plot").innerHTML = `<div class="empty" style="margin:24px 0">Could not load: ${esc(err.message)}</div>`;
+    chart = null;
+  } finally {
+    $("g-go").disabled = false; $("g-go").textContent = "Draw";
+  }
+}
+$("g-go").addEventListener("click", loadGraph);
+$("g-meter").addEventListener("change", loadGraph);
+$("g-measure").addEventListener("change", loadGraph);
+$("g-reset").addEventListener("click", () => chart && chart.reset());
+
+
+// ─── Register: naming meters ─────────────────────────────────────────────────
+// The serial is the identity and never changes; this edits the label beside it.
+const dirty = new Map();   // sn -> {label, site, zone}
+
+function markDirty() {
+  const n = dirty.size;
+  $("r-dirty").textContent = n ? `${n} unsaved ${n === 1 ? "change" : "changes"}` : "No changes";
+  $("r-save").disabled = !n || !CAN_WRITE;
+}
+function zoneSummary() {
+  const by = new Map();
+  for (const m of TM.meters) {
+    const z = (m.zone || "").trim() || "Unassigned";
+    by.set(z, (by.get(z) || 0) + 1);
+  }
+  const rows = [...by.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const max = Math.max(1, ...rows.map(r => r[1]));
+  $("zones").innerHTML = rows.map(([z, c]) => `
+    <div class="zbar">
+      <div class="zbar__n">${z === "Unassigned" ? '<span>Unassigned</span>' : esc(z)}</div>
+      <div class="zbar__lane"><div class="zbar__fill" style="width:${c / max * 100}%"></div></div>
+      <div class="zbar__c">${c}</div>
+    </div>`).join("");
+  const named = TM.meters.filter(m => m.label).length;
+  $("n-named").textContent = `${named}/${TM.meters.length}`;
+  $("zone-meta").textContent =
+    `${named} of ${TM.meters.length} named · ${rows.length} ${rows.length === 1 ? "zone" : "zones"}`;
+}
+
+function registerRows() {
+  const q = ($("r-find").value || "").trim().toLowerCase();
+  const mode = $("r-filter").value;
+  return TM.meters.filter(m => {
+    if (mode === "unnamed" && m.label) return false;
+    if (mode === "named" && !m.label) return false;
+    if (mode === "valved" && !m.valved) return false;
+    if (!q) return true;
+    return [m.sn, m.label, m.zone, m.site].some(v => (v || "").toLowerCase().includes(q));
+  });
+}
+function drawRegister() {
+  const rows = registerRows();
+  $("r-count").textContent = `${rows.length} of ${TM.meters.length} meters`;
+  const cell = (m, field, ph) => {
+    const pending = dirty.get(m.sn);
+    const val = pending && field in pending ? pending[field] : (m[field] || "");
+    return `<input class="cell" data-sn="${esc(m.sn)}" data-field="${field}"
+      value="${esc(val)}" placeholder="${esc(ph)}" ${CAN_WRITE ? "" : "disabled"}>`;
+  };
+  $("register-table").innerHTML =
+    `<thead><tr><th>Name</th><th>Serial</th><th>Zone</th><th>Site</th><th>Type</th><th>Last reported</th></tr></thead>` +
+    `<tbody>${rows.map(m => `
+      <tr class="${dirty.has(m.sn) ? "dirty" : ""}" data-row="${esc(m.sn)}">
+        <td>${cell(m, "label", "Name this meter")}</td>
+        <td><a class="sn" href="/app/water-meter/${encodeURIComponent(m.sn)}">${esc(m.sn)}</a></td>
+        <td>${cell(m, "zone", "Zone")}</td>
+        <td>${cell(m, "site", "Site")}</td>
+        <td>${m.valved ? '<span class="pill flow">Quinto</span>' : '<span class="pill">AMR</span>'}</td>
+        <td>${m.hours == null ? '<span style="color:var(--ink-faint)">never</span>' : esc(ago(m.hours))}</td>
+      </tr>`).join("")}</tbody>`;
+
+  $("register-table").querySelectorAll("input.cell").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const sn = inp.dataset.sn, field = inp.dataset.field;
+      const m = TM.meters.find(x => x.sn === sn);
+      const entry = dirty.get(sn) || {};
+      const original = m[field] || "";
+      if (inp.value === original) delete entry[field]; else entry[field] = inp.value;
+      if (Object.keys(entry).length) dirty.set(sn, entry); else dirty.delete(sn);
+      const tr = $("register-table").querySelector(`tr[data-row="${CSS.escape(sn)}"]`);
+      if (tr) tr.classList.toggle("dirty", dirty.has(sn));
+      markDirty();
+    });
+    // Enter saves, so a whole block can be typed without reaching for the mouse.
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") saveRegister(); });
+  });
+  markDirty();
+}
+
+async function saveRegister() {
+  if (!dirty.size) return;
+  const rows = [...dirty.entries()].map(([sn, v]) => ({ meter_sn: sn, ...v }));
+  $("r-save").disabled = true; $("r-save").textContent = "Saving…";
+  try {
+    const res = await call("upande_tagmeter.api.rename_many", { rows });
+    for (const saved of res.saved) {
+      const m = TM.meters.find(x => x.sn === saved.meter_sn);
+      if (!m) continue;
+      m.label = saved.label; m.site = saved.site; m.zone = saved.zone;
+      m.display = saved.display;
+      dirty.delete(saved.meter_sn);
+    }
+    if (res.failed.length) {
+      alert("Some meters were not saved:\n\n" +
+        res.failed.map(f => `${f.meter_sn}: ${f.error}`).join("\n"));
+    }
+    drawRegister(); zoneSummary(); refreshNames();
+  } catch (err) {
+    alert("Could not save:\n\n" + err.message);
+  } finally {
+    $("r-save").textContent = "Save names"; markDirty();
+  }
+}
+$("r-save").addEventListener("click", saveRegister);
+$("r-find").addEventListener("input", drawRegister);
+zoneSummary();
+$("r-filter").addEventListener("change", drawRegister);
+
+// ─── Identity switch ─────────────────────────────────────────────────────────
+function paintIdSwitch() {
+  document.querySelectorAll("#idmode button").forEach(b =>
+    b.classList.toggle("on", b.dataset.mode === nameMode));
+}
+document.querySelectorAll("#idmode button").forEach(b => b.addEventListener("click", () => {
+  nameMode = b.dataset.mode;
+  try { localStorage.setItem("tm:idmode", nameMode); } catch (e) { /* not fatal */ }
+  paintIdSwitch();
+  refreshNames();
+}));
+paintIdSwitch();
+
+// Revealing a serial is usually a prelude to pasting it somewhere.
+const copyNote = document.createElement("div");
+copyNote.className = "copied";
+document.body.appendChild(copyNote);
+let copyTimer = null;
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-copy]");
+  if (!t) return;
+  e.preventDefault();
+  const value = t.getAttribute("data-copy");
+  try {
+    await navigator.clipboard.writeText(value);
+    copyNote.textContent = `Copied ${value}`;
+  } catch (err) {
+    copyNote.textContent = `Could not copy — the serial is ${value}`;
+  }
+  copyNote.classList.add("on");
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => copyNote.classList.remove("on"), 1800);
+});
+
+// ---- view switching ----
+document.querySelectorAll(".side__nav .side__link").forEach(a => a.addEventListener("click", e => {
+  e.preventDefault();
+  const v = e.currentTarget.dataset.view;
+  document.querySelectorAll(".side__nav .side__link").forEach(x => x.classList.remove("on"));
+  e.currentTarget.classList.add("on");
+  document.querySelectorAll(".main .view").forEach(s => { s.hidden = s.id !== v; });
+  window.scrollTo({ top: 0 });
+  if (v === "view-flow" && !flowLoaded) { flowLoaded = true; loadFlow(); }
+  if (v === "view-register") { drawRegister(); zoneSummary(); }
+  // Graph mode drops the sidebar so the plot gets the full width.
+  document.body.classList.toggle("graphing", v === "view-graph");
+  if (v === "view-graph") {
+    if (!graphLoaded) { graphLoaded = true; loadGraph(); }
+    else if (chart) chart.draw();
+  }
+}));
+{% endraw %}
+</script>
+</body></html>

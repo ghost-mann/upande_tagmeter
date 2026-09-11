@@ -1,0 +1,407 @@
+{
+ "doctype": "DocType",
+ "name": "Water Meter",
+ "module": "upande_tagmeter",
+ "autoname": "field:meter_sn",
+ "naming_rule": "By fieldname",
+ "engine": "InnoDB",
+ "editable_grid": 1,
+ "track_changes": 1,
+ "allow_import": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "meter_label",
+ "field_order": [
+  "identity_sb",
+  "meter_sn",
+  "meter_label",
+  "meter_profile",
+  "device_index",
+  "cb_identity",
+  "dev_eui",
+  "connection",
+  "vendor_registered",
+  "location_sb",
+  "site",
+  "cb_location",
+  "zone",
+  "state_sb",
+  "status",
+  "online",
+  "last_seen",
+  "cb_state",
+  "last_synced_at",
+  "last_sync_outcome",
+  "last_reading",
+  "readings_sb",
+  "cumulative_flow_m3",
+  "remaining_balance_m3",
+  "instant_flow_m3h",
+  "cb_readings",
+  "temperature_c",
+  "rssi",
+  "snr",
+  "valve_sb",
+  "valve_toggle_html",
+  "valve_reported",
+  "valve_desired",
+  "valve_in_flight",
+  "cb_valve",
+  "status_raw",
+  "alarms_sb",
+  "battery_low",
+  "alarm_low_balance",
+  "alarm_battery_meter",
+  "alarm_empty_pipe",
+  "alarm_reverse_flow",
+  "alarm_overload_flow",
+  "alarm_temp",
+  "alarm_ee",
+  "alarm_leak",
+  "alarm_pipe_burst"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_sb",
+   "label": "Identity",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "meter_sn",
+   "label": "Meter Serial",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Exactly 14 decimal digits. This is the SMP's meterID and the document name."
+  },
+  {
+   "fieldname": "meter_label",
+   "label": "Name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "description": "What people call this meter \u2014 a house number, a tenant, a standpipe. The document name stays the 14-digit serial because that is the SMP's meterID and the key every reading joins on; this is a label beside it, never a replacement."
+  },
+  {
+   "fieldname": "meter_profile",
+   "label": "Profile",
+   "fieldtype": "Select",
+   "options": "AMR\nQuinto Prepaid",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "device_index",
+   "label": "Device Index",
+   "fieldtype": "Int",
+   "description": "The -NN suffix from the fleet export, 1-100."
+  },
+  {
+   "fieldname": "cb_identity",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dev_eui",
+   "label": "DevEUI",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "description": "Reported by the SMP. Metadata only -- the SMP is addressed by meter serial."
+  },
+  {
+   "fieldname": "connection",
+   "label": "Bore",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "description": "e.g. DN15. From the SMP."
+  },
+  {
+   "fieldname": "vendor_registered",
+   "label": "Known to SMP",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0",
+   "description": "The SMP answered for this serial rather than returning an unknown-meter error."
+  },
+  {
+   "fieldname": "location_sb",
+   "label": "Location",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "site",
+   "label": "Site",
+   "fieldtype": "Data",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "cb_location",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "zone",
+   "label": "Zone",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "state_sb",
+   "label": "Link State",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "Never Seen\nActive\nSuspect\nDecommissioned",
+   "default": "Never Seen",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "online",
+   "label": "Online",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Set when the newest reading is within the staleness window (tagmeter_offline_after_hours, default 30). Meters report roughly every 12 hours, so a short threshold would produce constant false alarms."
+  },
+  {
+   "fieldname": "last_seen",
+   "label": "Last Reported",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Meter's own clock on the newest reading, converted from the SMP's Amsterdam time."
+  },
+  {
+   "fieldname": "cb_state",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_synced_at",
+   "label": "Last Polled",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "description": "When we last called the SMP for this meter -- distinct from when the meter last spoke."
+  },
+  {
+   "fieldname": "last_sync_outcome",
+   "label": "Last Poll Outcome",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_reading",
+   "label": "Latest Reading",
+   "fieldtype": "Link",
+   "options": "Meter Reading",
+   "read_only": 1
+  },
+  {
+   "fieldname": "readings_sb",
+   "label": "Latest Values",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "cumulative_flow_m3",
+   "label": "Cumulative Flow (m3)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "remaining_balance_m3",
+   "label": "Prepaid Balance (m3)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "instant_flow_m3h",
+   "label": "Current Flow (m3/h)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "cb_readings",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "temperature_c",
+   "label": "Temperature (C)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "rssi",
+   "label": "RSSI",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "snr",
+   "label": "SNR",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "1"
+  },
+  {
+   "fieldname": "valve_sb",
+   "label": "Valve",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "valve_toggle_html",
+   "label": "Valve Control",
+   "fieldtype": "HTML",
+   "description": "The switch shows what the meter last reported, not what was asked. While a command is in flight it is disabled and shows the requested position. Meters without a valve say so."
+  },
+  {
+   "fieldname": "valve_reported",
+   "label": "Valve (Reported)",
+   "fieldtype": "Select",
+   "options": "Unknown\nOpen\nClosed\nError",
+   "default": "Unknown",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "What the meter last confirmed. There is deliberately no desired-state field until commands exist to drive it."
+  },
+  {
+   "fieldname": "valve_desired",
+   "label": "Valve (Desired)",
+   "fieldtype": "Select",
+   "options": "Unknown\nOpen\nClosed",
+   "default": "Unknown",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "What was last requested. Set by issuing a Meter Command -- not editable directly, so it can never claim something no command was sent for."
+  },
+  {
+   "fieldname": "valve_in_flight",
+   "label": "Command In Flight",
+   "fieldtype": "Link",
+   "options": "Meter Command",
+   "read_only": 1,
+   "description": "A queued command the meter has not yet confirmed. While set, further valve commands are refused: two competing downlinks make the outcome ambiguous."
+  },
+  {
+   "fieldname": "cb_valve",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status_raw",
+   "label": "Status Bytes",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "description": "ST1/ST2 as hex, e.g. 0802."
+  },
+  {
+   "fieldname": "alarms_sb",
+   "label": "Alarm Flags",
+   "fieldtype": "Section Break",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "battery_low",
+   "label": "Battery Low (ST1.2)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_low_balance",
+   "label": "Low Balance Alarm (ST1.3)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_battery_meter",
+   "label": "Battery Alarm (ST2.0)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_empty_pipe",
+   "label": "Empty Pipe (ST2.1)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_reverse_flow",
+   "label": "Reverse Flow (ST2.2)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_overload_flow",
+   "label": "Overload Flow (ST2.3)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_temp",
+   "label": "Temperature Alarm (ST2.4)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_ee",
+   "label": "EE Alarm (ST2.5)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_leak",
+   "label": "Leak (ST2.6)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_pipe_burst",
+   "label": "Pipe Burst (ST2.7)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "TagMeter Operator",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "search_fields": "meter_label,meter_profile,site,zone,status",
+ "show_title_field_in_link": 1
+}

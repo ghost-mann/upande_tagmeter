@@ -1,0 +1,307 @@
+{
+ "doctype": "DocType",
+ "name": "Meter Reading",
+ "module": "upande_tagmeter",
+ "autoname": "hash",
+ "engine": "InnoDB",
+ "editable_grid": 0,
+ "sort_field": "device_time",
+ "sort_order": "DESC",
+ "field_order": [
+  "source_sb",
+  "water_meter",
+  "device_time",
+  "cb_source",
+  "received_at",
+  "connection",
+  "dedupe_key",
+  "values_sb",
+  "cumulative_flow_m3",
+  "consumption_m3",
+  "remaining_balance_m3",
+  "cb_values",
+  "instant_flow_m3h",
+  "temperature_c",
+  "rssi",
+  "snr",
+  "status_sb",
+  "valve_state",
+  "status_raw",
+  "status_text_mismatch",
+  "cb_status",
+  "valve_status_text",
+  "alarm_message_text",
+  "alarms_sb",
+  "battery_low",
+  "alarm_low_balance",
+  "alarm_battery_meter",
+  "alarm_empty_pipe",
+  "alarm_reverse_flow",
+  "alarm_overload_flow",
+  "alarm_temp",
+  "alarm_ee",
+  "alarm_leak",
+  "alarm_pipe_burst",
+  "hourly_sb",
+  "hourly_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_sb",
+   "label": "Source",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "water_meter",
+   "label": "Water Meter",
+   "fieldtype": "Link",
+   "options": "Water Meter",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "device_time",
+   "label": "Meter Time",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The meter's own clock, converted from the SMP's Europe/Amsterdam stamp."
+  },
+  {
+   "fieldname": "cb_source",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "received_at",
+   "label": "Polled At",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "connection",
+   "label": "Bore",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dedupe_key",
+   "label": "Dedupe Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "description": "meter_sn:device_time. The SMP returns its latest record on every poll, so the same reading arrives repeatedly; this is what makes ingestion idempotent."
+  },
+  {
+   "fieldname": "values_sb",
+   "label": "Values",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "cumulative_flow_m3",
+   "label": "Cumulative Flow (m3)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "consumption_m3",
+   "label": "Consumption Since Previous (m3)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3",
+   "description": "Zero on a meter's first reading, and zero if the counter moved backwards -- that means replacement or reset, never negative water use."
+  },
+  {
+   "fieldname": "remaining_balance_m3",
+   "label": "Prepaid Balance (m3)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "cb_values",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "instant_flow_m3h",
+   "label": "Current Flow (m3/h)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "temperature_c",
+   "label": "Temperature (C)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "rssi",
+   "label": "RSSI",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "snr",
+   "label": "SNR",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": "1"
+  },
+  {
+   "fieldname": "status_sb",
+   "label": "Status",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "valve_state",
+   "label": "Valve",
+   "fieldtype": "Select",
+   "options": "Unknown\nOpen\nClosed\nError",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status_raw",
+   "label": "Status Bytes",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_text_mismatch",
+   "label": "Status Text Disagrees",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0",
+   "description": "Set when the decoded status byte contradicts the SMP's own wording. Both are kept so a human can settle it; neither is discarded."
+  },
+  {
+   "fieldname": "cb_status",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "valve_status_text",
+   "label": "ValveStatus (verbatim)",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "alarm_message_text",
+   "label": "AlarmMessage (verbatim)",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "alarms_sb",
+   "label": "Alarm Flags",
+   "fieldtype": "Section Break",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "battery_low",
+   "label": "Battery Low (ST1.2)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_low_balance",
+   "label": "Low Balance Alarm (ST1.3)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_battery_meter",
+   "label": "Battery Alarm (ST2.0)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_empty_pipe",
+   "label": "Empty Pipe (ST2.1)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_reverse_flow",
+   "label": "Reverse Flow (ST2.2)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_overload_flow",
+   "label": "Overload Flow (ST2.3)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_temp",
+   "label": "Temperature Alarm (ST2.4)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_ee",
+   "label": "EE Alarm (ST2.5)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_leak",
+   "label": "Leak (ST2.6)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "alarm_pipe_burst",
+   "label": "Pipe Burst (ST2.7)",
+   "fieldtype": "Check",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "hourly_sb",
+   "label": "Hourly Series",
+   "fieldtype": "Section Break",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "hourly_data",
+   "label": "Hourly Data (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "The rolling 24-hour window from dataHourly. Stored as JSON rather than a child table: 100 meters at ~2 records a day would be ~1.7M child rows a year, and these values are read as a block."
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "TagMeter Operator",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  }
+ ]
+}

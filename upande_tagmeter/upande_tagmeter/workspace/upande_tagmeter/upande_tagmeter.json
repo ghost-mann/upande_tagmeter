@@ -1,0 +1,72 @@
+{
+ "doctype": "Workspace",
+ "name": "Upande TagMeter",
+ "label": "Upande TagMeter",
+ "module": "upande_tagmeter",
+ "public": 1,
+ "is_hidden": 0,
+ "icon": "resources",
+ "title": "Upande TagMeter",
+ "sequence_id": 30.0,
+ "content": "[{\"id\": \"tm-cb-navigation\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"TagMeter Navigation\", \"col\": 12}}]",
+ "charts": [],
+ "number_cards": [],
+ "custom_blocks": [
+  {
+   "custom_block_name": "TagMeter Navigation",
+   "label": "TagMeter Navigation"
+  }
+ ],
+ "quick_lists": [],
+ "roles": [],
+ "shortcuts": [],
+ "links": [
+  {
+   "label": "Meters",
+   "type": "Card Break",
+   "hidden": 0,
+   "onboard": 0,
+   "link_count": 2,
+   "is_query_report": 0
+  },
+  {
+   "label": "Water Meter",
+   "link_to": "Water Meter",
+   "link_type": "DocType",
+   "type": "Link",
+   "dependencies": "",
+   "hidden": 0,
+   "onboard": 1,
+   "is_query_report": 0
+  },
+  {
+   "label": "Meter Reading",
+   "link_to": "Meter Reading",
+   "link_type": "DocType",
+   "type": "Link",
+   "dependencies": "",
+   "hidden": 0,
+   "onboard": 0,
+   "is_query_report": 0
+  },
+  {
+   "label": "Control",
+   "type": "Card Break",
+   "hidden": 0,
+   "onboard": 0,
+   "link_count": 1,
+   "is_query_report": 0
+  },
+  {
+   "label": "Meter Command",
+   "link_to": "Meter Command",
+   "link_type": "DocType",
+   "type": "Link",
+   "dependencies": "",
+   "hidden": 0,
+   "onboard": 0,
+   "is_query_report": 0
+  }
+ ],
+ "type": "Workspace"
+}

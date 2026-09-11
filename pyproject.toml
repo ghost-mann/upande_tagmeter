@@ -1,0 +1,27 @@
+[project]
+name = "upande_tagmeter"
+authors = [
+    { name = "ghost-mann", email = "james@upande.com" }
+]
+description = "TagMeter smart water meter monitoring and management via the tagmeter.com SMP REST API."
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # "frappe~=15.0.0" # Installed and managed by bench.
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "tab"
