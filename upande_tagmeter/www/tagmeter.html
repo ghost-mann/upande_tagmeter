@@ -424,7 +424,7 @@ body.graphing .side{display:none}
   <div class="pagehead">
     <div>
       <h1 class="pagehead__title">Network</h1>
-      <p class="pagehead__sub">A gateway counts as healthy only when it says online <em>and</em> its heartbeat is fresh. The vendor's flag alone has been wrong.</p>
+      <p class="pagehead__sub">A gateway counts as healthy only when it says online <em>and</em> its heartbeat is fresh. The vendor's flag alone has been wrong. Anything we have no current evidence for reads <em>unknown</em>, never down.</p>
     </div>
   </div>
   <div class="card card--padded">
@@ -669,7 +669,19 @@ $("alarms").innerHTML = TM.alarm_counts.length
 // ---- gateways ----
 $("n-network").textContent = TM.gateways.length;
 
-const gwDown = TM.gateways.filter(g => !g.healthy);
+// Only a confident "unhealthy" is an outage. "unknown" — decommissioned,
+// never polled, or polled too long ago to trust — is not evidence of one.
+const gwDown = TM.gateways.filter(g => g.health === "unhealthy");
+const gwUnknown = TM.gateways.filter(g => g.health === "unknown");
+
+// Why a gateway is unknown decides what an operator does about it, so the
+// pill carries the reason rather than leaving them to guess.
+function unknownWhy(g) {
+  if (g.state === "Decommissioned") return "Decommissioned — down on purpose, not a fault.";
+  if (!g.polled) return "Never polled. Unknown, not down: seeding a gateway must not condemn its meters.";
+  if (!g.last_heartbeat) return "Polled, but the SMP has not returned a heartbeat yet.";
+  return `Our own last poll of it was ${ago(g.poll_hours)}. Any staleness here is our outage, not the gateway's.`;
+}
 if (gwDown.length) {
   const b = $("gw-banner");
   b.hidden = false;
@@ -686,12 +698,15 @@ if (gwDown.length) {
     ` Alarm flags below are still the last known state of the pipe and remain valid.`;
 }
 
-$("gw-meta").textContent = `${TM.gateways.length} gateways · ${gwDown.length} unhealthy`;
+$("gw-meta").textContent = `${TM.gateways.length} gateways · ${gwDown.length} unhealthy` +
+  (gwUnknown.length ? ` · ${gwUnknown.length} unknown` : "");
 table("gw-table", [
   { h: "Gateway", f: g => `<b>${esc(g.label)}</b><div style="color:var(--ink-faint)">${esc(g.id)}</div>` },
-  { h: "Health", f: g => g.healthy
+  { h: "Health", f: g => g.health === "healthy"
       ? '<span class="pill ok">healthy</span>'
-      : '<span class="pill bad">unhealthy</span>' },
+      : g.health === "unhealthy"
+        ? '<span class="pill bad">unhealthy</span>'
+        : `<span class="pill" title="${esc(unknownWhy(g))}">unknown</span>` },
   { h: "Vendor flag", f: g => g.online ? "online" : '<span class="pill warn">offline</span>' },
   { h: "Last heartbeat", f: g => esc(ago(g.hours)) },
   { h: "Bound meters", num: true, f: g => g.bound },
