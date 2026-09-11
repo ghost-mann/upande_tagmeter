@@ -840,15 +840,70 @@ $("valve-table").addEventListener("click", async e => {
   wasEnabled.forEach(x => x.disabled = true);
   try {
     const r = await call("upande_tagmeter.valve.set_valve", { water_meter: m.sn, action: act });
-    alert(r.status === "Rejected"
-      ? `The SMP refused it: ${r.message}`
-      : `Command ${r.command} queued. It stays queued until a reading shows the valve in that state.`);
-    location.reload();
+    if (r.status === "Rejected") {
+      alert(`The SMP refused it: ${r.message}`);
+      wasEnabled.forEach(x => x.disabled = false);
+      return;
+    }
+    watchCommand(m.sn, act, r.command);
   } catch (err) {
     alert("Could not queue the command:\n\n" + err.message);
     wasEnabled.forEach(x => x.disabled = false);
   }
 });
+
+// ─── live confirmation ───────────────────────────────────────────────────────
+// The meter acts within ~15s and its uplink reaches the SMP a fixed ~2m04s
+// later, so a command settles in about three minutes. Poll for four, then stop:
+// past the timeout the watchdog owns it and there is nothing more to see.
+const WATCH_EVERY_MS = 15000;
+const WATCH_FOR_MS = 4 * 60 * 1000;
+const watching = new Map();   // sn -> intervalId, so two clicks cannot stack pollers
+
+function watchCommand(sn, act, command) {
+  const row = [...$("valve-table").querySelectorAll("tr")]
+    .find(tr => tr.querySelector(`button[data-vsn="${CSS.escape(sn)}"], [data-vrel="${CSS.escape(sn)}"]`))
+    || [...$("valve-table").querySelectorAll("tr")].find(tr => tr.textContent.includes(sn));
+  const cell = row ? row.querySelector("td:last-child") : null;
+  const started = Date.now();
+
+  if (watching.has(sn)) { clearInterval(watching.get(sn)); watching.delete(sn); }
+
+  const paint = (state, detail) => {
+    if (!cell) return;
+    const secs = Math.round((Date.now() - started) / 1000);
+    cell.innerHTML = `<div class="valvewait">
+        <span class="pill ${state === "Confirmed" ? "ok" : state === "Timed out" ? "bad" : "warn"}">${esc(state)}</span>
+        <span class="note">${esc(detail)}${state === "Waiting" ? ` · ${secs}s` : ""}</span>
+      </div>`;
+  };
+  paint("Waiting", `${act === "open" ? "Open" : "Close"} sent to the SMP · ${esc(command)}`);
+
+  const tick = async () => {
+    if (Date.now() - started > WATCH_FOR_MS) {
+      clearInterval(watching.get(sn)); watching.delete(sn);
+      paint("Timed out", "No confirming reading yet. The watchdog will expire it; reload to see where it landed.");
+      return;
+    }
+    try {
+      const s = await call("upande_tagmeter.valve.check", { water_meter: sn });
+      if (s.settled) {
+        clearInterval(watching.get(sn)); watching.delete(sn);
+        const ok = s.status === "Confirmed";
+        paint(ok ? "Confirmed" : (s.status || "Closed out"),
+              ok ? `Valve reports ${s.valve_reported}` : `Command ended as ${s.status}`);
+        setTimeout(() => location.reload(), 2500);
+      } else {
+        paint("Waiting", `${act === "open" ? "Open" : "Close"} sent · waiting for the meter's uplink`);
+      }
+    } catch (err) {
+      // A failed poll is not a failed command -- keep waiting, say so.
+      paint("Waiting", "Poll failed, still waiting: " + err.message.slice(0, 60));
+    }
+  };
+  watching.set(sn, setInterval(tick, WATCH_EVERY_MS));
+  setTimeout(tick, 2000);   // first check early, before the interval's first beat
+}
 
 $("valve-table").addEventListener("click", async e => {
   const b = e.target.closest("button[data-vrel]");
