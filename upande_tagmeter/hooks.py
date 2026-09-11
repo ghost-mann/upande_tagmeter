@@ -30,6 +30,9 @@ scheduler_events = {
 		"0 */4 * * *": ["upande_tagmeter.sync.sync_fleet"],
 	},
 	"hourly": [
+		# Gateway health is the input to every "Gateway Down" verdict, so it
+		# must be refreshed before link states are recomputed below.
+		"upande_tagmeter.gateway.sync_gateways",
 		# Expire overdue valve commands and re-send any the SMP never accepted.
 		# Hourly rather than every few minutes: a command legitimately waits
 		# hours on Class B, so checking more often would only add noise.
