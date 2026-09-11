@@ -12,7 +12,7 @@ app_license = "mit"
 add_to_apps_screen = [
 	{
 		"name": "upande_tagmeter",
-		"logo": "/assets/frappe/images/frappe-framework-logo.svg",
+		"logo": "/assets/upande_tagmeter/images/upande-logo.png",
 		"title": "TagMeter",
 		"route": "/app/upande-tagmeter",
 	}
