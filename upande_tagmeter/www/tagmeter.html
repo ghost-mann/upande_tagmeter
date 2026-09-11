@@ -844,7 +844,12 @@ $("valve-table").addEventListener("click", async e => {
   // Only re-enable, on failure, the buttons that were actually enabled before this
   // click — a row disabled because its meter already has a command in flight must
   // stay disabled, not be handed back to the operator by an unrelated error.
-  const wasEnabled = [...$("valve-table").querySelectorAll("button[data-vact]")].filter(x => !x.disabled);
+  // Scope to THIS row. Disabling every button in the table would leave the
+  // other nine meters greyed out for good, because only the clicked row is
+  // repainted afterwards -- reported from the field as "open and close button
+  // for rest of valves grey out when i select one valve".
+  const scope = b.closest("tr") || $("valve-table");
+  const wasEnabled = [...scope.querySelectorAll("button[data-vact]")].filter(x => !x.disabled);
   wasEnabled.forEach(x => x.disabled = true);
   try {
     const r = await call("upande_tagmeter.valve.set_valve", { water_meter: m.sn, action: act });
@@ -866,7 +871,16 @@ $("valve-table").addEventListener("click", async e => {
 // past the timeout the watchdog owns it and there is nothing more to see.
 const WATCH_EVERY_MS = 15000;
 const WATCH_FOR_MS = 4 * 60 * 1000;
-const watching = new Map();   // sn -> intervalId, so two clicks cannot stack pollers
+const watching = new Map();   // sn -> {interval, timeout}, so clicks cannot stack pollers
+
+function stopWatching(sn) {
+	const h = watching.get(sn);
+	if (!h) return;
+	clearInterval(h.interval);
+	clearTimeout(h.timeout);
+	clearInterval(h.ticker);
+	watching.delete(sn);
+}
 
 function watchCommand(sn, act, command) {
   const row = [...$("valve-table").querySelectorAll("tr")]
@@ -875,9 +889,14 @@ function watchCommand(sn, act, command) {
   const cell = row ? row.querySelector("td:last-child") : null;
   const started = Date.now();
 
-  if (watching.has(sn)) { clearInterval(watching.get(sn)); watching.delete(sn); }
+  stopWatching(sn);
 
+  // Held so the one-second ticker can redraw the elapsed time without waiting
+  // for the next poll. Repainting only every 15s made the counter sit frozen,
+  // which reads as "not live updating" even though it is working.
+  let shown = { state: "Waiting", detail: "" };
   const paint = (state, detail) => {
+    shown = { state, detail };
     if (!cell) return;
     const secs = Math.round((Date.now() - started) / 1000);
     cell.innerHTML = `<div class="valvewait">
@@ -889,14 +908,14 @@ function watchCommand(sn, act, command) {
 
   const tick = async () => {
     if (Date.now() - started > WATCH_FOR_MS) {
-      clearInterval(watching.get(sn)); watching.delete(sn);
+      stopWatching(sn);
       paint("Timed out", "No confirming reading yet. The watchdog will expire it; reload to see where it landed.");
       return;
     }
     try {
       const s = await call("upande_tagmeter.valve.check", { water_meter: sn });
       if (s.settled) {
-        clearInterval(watching.get(sn)); watching.delete(sn);
+        stopWatching(sn);
         const ok = s.status === "Confirmed";
         paint(ok ? "Confirmed" : (s.status || "Closed out"),
               ok ? `Valve reports ${s.valve_reported}` : `Command ended as ${s.status}`);
@@ -909,8 +928,14 @@ function watchCommand(sn, act, command) {
       paint("Waiting", "Poll failed, still waiting: " + err.message.slice(0, 60));
     }
   };
-  watching.set(sn, setInterval(tick, WATCH_EVERY_MS));
-  setTimeout(tick, 2000);   // first check early, before the interval's first beat
+  // BOTH handles are kept. Clearing only the interval left the early timeout to
+  // fire from a superseded watcher and paint stale text -- a Close command that
+  // still read "Open sent" because the previous click's timer was alive.
+  watching.set(sn, {
+    interval: setInterval(tick, WATCH_EVERY_MS),
+    timeout: setTimeout(tick, 2000),   // check early, before the interval's first beat
+    ticker: setInterval(() => { if (shown.state === "Waiting") paint(shown.state, shown.detail); }, 1000),
+  });
 }
 
 $("valve-table").addEventListener("click", async e => {
