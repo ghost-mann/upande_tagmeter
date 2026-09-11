@@ -598,6 +598,14 @@ $("kpis").innerHTML = kpis.map(c => `
     <div class="kpi__trend ${c.trend[0]}">${esc(c.trend[1])}</div>
   </div>`).join("");
 
+const STATE_PILL = {
+  "Reporting": "ok", "Late": "warn", "Silent": "bad",
+  "Gateway Down": "bad", "Never Seen": "", "No Data on SMP": "warn",
+};
+const stateCell = m => m.link_state
+  ? `<span class="pill ${STATE_PILL[m.link_state] || ""}">${esc(m.link_state)}</span>`
+  : '<span style="color:var(--ink-faint)">—</span>';
+
 // ---- the fleet grid ----
 const BAND_COLOUR = {
   live: "var(--flow-500)", recent: "var(--flow-300)", stale: "rgba(217,150,46,.55)",
@@ -633,6 +641,7 @@ function showMeter(sn) {
     ["Noise margin", m.snr == null ? '<b class="muted">—</b>' : `<b>${num(m.snr, 1)} dB</b>`],
     ["Status bytes", m.raw ? `<b style="font-family:var(--mono);font-size:15px">${esc(m.raw)}</b>` : '<b class="muted">—</b>'],
     ["Last poll", `<b>${esc(m.outcome || "—")}</b>`],
+    ["Link state", `<b>${stateCell(m)}</b>`],
     ["DevEUI", m.dev_eui ? `<b style="font-family:var(--mono);font-size:13px">${esc(m.dev_eui)}</b>` : '<b class="muted">—</b>'],
     ["Alarms", m.alarms.length ? `<b>${m.alarms.map(a => `<span class="pill warn">${esc(a)}</span>`).join(" ")}</b>` : '<b class="muted">none</b>'],
   ];
@@ -715,14 +724,6 @@ table("gw-table", [
       : '<span style="color:var(--ink-faint)">no fix</span>' },
   { h: "State", f: g => esc(g.state || "Active") },
 ], TM.gateways);
-
-const STATE_PILL = {
-  "Reporting": "ok", "Late": "warn", "Silent": "bad",
-  "Gateway Down": "bad", "Never Seen": "", "No Data on SMP": "warn",
-};
-const stateCell = m => m.link_state
-  ? `<span class="pill ${STATE_PILL[m.link_state] || ""}">${esc(m.link_state)}</span>`
-  : '<span style="color:var(--ink-faint)">—</span>';
 
 // ---- meters table ----
 function table(el, cols, rows) {
