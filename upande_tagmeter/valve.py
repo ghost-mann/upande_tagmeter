@@ -287,6 +287,74 @@ def check(water_meter: str) -> dict:
 	}
 
 
+EXPIRY_REASON = (
+	"The meter never reported the requested state before the command expired. "
+	"An actuated meter answers within seconds and its uplink reaches the SMP "
+	"about two minutes later, so passing the timeout means the meter is not "
+	"reachable on the SMP's network server, or has stopped transmitting."
+)
+
+
+def _expire_overdue() -> list[str]:
+	"""Close out anything past its deadline. Shared by the poller and the
+	watchdog: a ten-minute timeout applied only once an hour is not a
+	ten-minute timeout."""
+	expired = []
+	for row in frappe.get_all(
+		"Meter Command", filters={"status": "Queued"}, fields=["name", "expires_at"],
+	):
+		if row.expires_at and now_datetime() > row.expires_at:
+			_close_out(frappe.get_doc("Meter Command", row.name), "Expired",
+			           failure_reason=EXPIRY_REASON)
+			expired.append(row.name)
+	return expired
+
+
+def _sync_meter(meter_sn: str, client=None):
+	"""Indirection so the poller can be tested without the sync module's
+	machinery, and so one import cycle stays broken."""
+	from upande_tagmeter.sync import sync_meter
+
+	return sync_meter(meter_sn, client=client)
+
+
+@frappe.whitelist()
+def poll_pending(client=None) -> dict:
+	"""Poll every meter that has a command in flight, and nothing else.
+
+	This is what makes a command confirm without a browser open. Measured
+	2026-09-11: four commands issued at 16:40 sat Queued for eight minutes while
+	two of them already had confirming readings waiting on the SMP -- one from
+	six seconds after the command, the other twenty-five. Nothing was looking.
+
+	The browser watcher only covers the row that was clicked and dies on a
+	reload. ``sync_fleet`` runs every four hours. ``watchdog`` expires and
+	re-sends but never reads. So this fills the gap, and it is deliberately
+	scoped: with nothing in flight it makes no API calls at all, which is why it
+	can afford to run every couple of minutes.
+	"""
+	names = frappe.get_all(
+		"Meter Command", filters={"status": "Queued"}, pluck="water_meter", distinct=True,
+	)
+	if not names:
+		return {"polled": 0, "confirmed": [], "failures": []}
+
+	client = client or get_client()
+	confirmed, failures = [], []
+	for name in names:
+		try:
+			_sync_meter(name, client=client)
+		except Exception:
+			# One unreachable meter must not strand the others' confirmations.
+			frappe.log_error(frappe.get_traceback(), f"TagMeter pending poll failed for {name}")
+			failures.append(name)
+			continue
+		if not _pending(name):
+			confirmed.append(name)
+	return {"polled": len(names), "confirmed": confirmed, "failures": failures,
+	        "expired": _expire_overdue()}
+
+
 @frappe.whitelist()
 def watchdog() -> dict:
 	"""Expire overdue commands and re-send ones the SMP never accepted.
@@ -304,12 +372,7 @@ def watchdog() -> dict:
 	):
 		command = frappe.get_doc("Meter Command", row.name)
 		if row.expires_at and now_datetime() > row.expires_at:
-			_close_out(command, "Expired", failure_reason=(
-				"The meter never reported the requested state before the command expired. "
-				"An actuated meter answers within seconds and its uplink reaches the SMP "
-				"about two minutes later, so passing the timeout means the meter is not "
-				"reachable on the SMP's network server, or has stopped transmitting."
-			))
+			_close_out(command, "Expired", failure_reason=EXPIRY_REASON)
 			expired += 1
 			continue
 

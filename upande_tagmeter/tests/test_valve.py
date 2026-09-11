@@ -356,3 +356,73 @@ class TestValve(IntegrationTestCase):
 		self.assertAlmostEqual(window, valve.VALVE_TIMEOUT_MINUTES, delta=1)
 		self.assertLess(window, 60, "a 26-hour expiry was the original defect")
 		valve.release(sn)
+
+	# ── polling what is in flight ────────────────────────────────────────────
+
+	def test_poll_pending_only_touches_meters_with_a_command_in_flight(self):
+		"""A command reaches the meter in seconds, but nothing was checking.
+
+		The browser watcher covers only the row that was clicked and dies on a
+		reload; sync_fleet runs every four hours; the watchdog expires and
+		re-sends but never polls. So commands sat Queued while their confirming
+		readings were already on the SMP -- measured 2026-09-11, two commands
+		confirmed the instant they were polled, six and twenty-five seconds
+		after the meter had actually acted.
+		"""
+		waiting = "68753500171040"
+		idle = "68753500171041"
+		self._meter(waiting)
+		self._meter(idle)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(waiting, "close")
+
+		polled = []
+		with patch.object(valve, "_sync_meter", side_effect=lambda sn, client=None: polled.append(sn)):
+			out = valve.poll_pending(client=object())
+
+		self.assertIn(waiting, polled)
+		self.assertNotIn(idle, polled, "a meter with nothing pending costs an API call for nothing")
+		self.assertEqual(out["polled"], len(polled))
+		valve.release(waiting)
+
+	def test_poll_pending_is_free_when_nothing_is_in_flight(self):
+		"""The point of scoping it: idle, it must cost nothing at all, which is
+		what lets it run every couple of minutes.
+
+		The queued set is patched rather than emptied -- this site carries real
+		commands, and a test that waits for a globally empty table would be
+		asserting about production data.
+		"""
+		polled = []
+		with patch.object(valve.frappe, "get_all", return_value=[]), \
+		     patch.object(valve, "get_client", side_effect=AssertionError("built a client for nothing")), \
+		     patch.object(valve, "_sync_meter", side_effect=lambda sn, client=None: polled.append(sn)):
+			out = valve.poll_pending()
+		self.assertEqual(polled, [])
+		self.assertEqual(out, {"polled": 0, "confirmed": [], "failures": []})
+
+	def test_poll_pending_survives_one_meter_failing(self):
+		"""One unreachable meter must not strand the others' confirmations."""
+		a = "68753500171042"
+		b = "68753500171043"
+		self._meter(a)
+		self._meter(b)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(a, "close")
+			valve.set_valve(b, "close")
+
+		def flaky(sn, client=None):
+			if sn == a:
+				raise RuntimeError("meter unreachable")
+
+		with patch.object(valve, "_sync_meter", side_effect=flaky):
+			out = valve.poll_pending(client=object())
+
+		self.assertIn(a, out["failures"])
+		self.assertNotIn(b, out["failures"], "one bad meter must not fail its neighbours")
+		# Counted, not equalled: this site carries real queued commands too.
+		self.assertGreaterEqual(out["polled"], 2)
+		valve.release(a)
+		valve.release(b)
