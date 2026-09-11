@@ -376,3 +376,43 @@ def test_the_no_valve_refusal_is_a_rejection():
 	outcome, body = client.set_valve("68750000076973", "Open")
 	assert outcome is Outcome.REJECTED
 	assert "no valve" in body["message"]
+
+
+# ── code 200 that is actually an auth failure ────────────────────────────────
+
+def test_code_200_carrying_an_auth_failure_message_is_treated_as_unauthorized():
+	"""The SMP reports an expired token on a read as code 200, not 401.
+
+	Classifying it OK is worse than failing: parse_amr finds no record and the
+	caller stores "no AMR record", which is a real and common condition for this
+	fleet. Every read then fails silently as "nothing new to report".
+	"""
+	client = make([fx.AUTH_OK, fx.AMR_TOKEN_EXPIRED, fx.AUTH_OK, fx.AMR_0868])
+	outcome, data = client.get_latest_amr("68753500170868")
+	assert outcome is Outcome.OK
+	assert data["meter_sn"] == "68753500170868"
+	assert client.session.endpoints == [
+		"req_authorization_token", "get_latest_amr", "req_authorization_token", "get_latest_amr"
+	]
+
+
+def test_the_same_auth_message_on_a_fresh_token_means_the_meter_is_unknown():
+	"""Their message conflates "token expired" with "unknown meterID".
+
+	A freshly issued token rules out the first, so the second is what is left.
+	Raising AuthFailed here would abort a whole fleet sweep over one bad serial.
+	"""
+	client = make([fx.AUTH_OK, fx.AMR_TOKEN_EXPIRED, fx.AUTH_OK, fx.AMR_TOKEN_EXPIRED])
+	outcome, data = client.get_latest_amr("68753500170868")
+	assert outcome is Outcome.UNKNOWN_METER
+	assert data is None
+
+
+def test_a_genuine_empty_record_is_not_mistaken_for_an_expired_token():
+	"""Regression guard: "Operation success!" with no record is a real state for
+	this fleet and must keep classifying OK, with no refresh attempted."""
+	client = make([fx.AUTH_OK, fx.AMR_NO_RECORD])
+	outcome, data = client.get_latest_amr("68753500170868")
+	assert outcome is Outcome.OK
+	assert data is None
+	assert client.session.endpoints == ["req_authorization_token", "get_latest_amr"]

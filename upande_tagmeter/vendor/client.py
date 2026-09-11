@@ -38,6 +38,24 @@ DEFAULT_TIMEOUT = 30  # observed latencies 0.5-4.8s; slow should be slow, not fa
 # and do not let requests fall back to its own default.
 USER_AGENT = "upande-tagmeter/0.1 (+https://upande.com)"
 
+# The SMP reports an expired token on a read as ``code: 200`` with this text in
+# the message, and the same string also covers an unknown meterID -- two
+# unrelated faults sharing one sentence. Matched case-insensitively on the
+# stable prefix only, so the trailing serial does not have to be parsed out.
+AUTH_FAILURE_TEXT = "authorization token expired or invalid"
+
+
+def reports_auth_failure(parsed: Any) -> bool:
+	"""True when a ``code: 200`` body is actually reporting an auth failure.
+
+	Deliberately narrow: only a 200 qualifies. A genuine ``code: 401`` is
+	already classified by the normal path, and a body carrying real data is
+	never second-guessed on the strength of its message text.
+	"""
+	if not isinstance(parsed, dict) or parsed.get("code") != 200:
+		return False
+	return AUTH_FAILURE_TEXT in str(parsed.get("message") or "").lower()
+
 READ_ENDPOINTS = frozenset({
 	"req_authorization_token",
 	"get_latest_amr",
@@ -328,6 +346,13 @@ class TagMeterClient:
 			token = self._refresh(used=token)
 			outcome, parsed = self._attempt_with_retry(endpoint, body, token)
 			if outcome is Outcome.UNAUTHORIZED:
+				if reports_auth_failure(parsed):
+					# Their code-200 message conflates "token expired" with
+					# "unknown meterID". A freshly issued token rules out the
+					# first, so the second is what is left. Returning rather
+					# than raising matters: one unregistered serial must not
+					# abort a sweep across the whole fleet.
+					return Outcome.UNKNOWN_METER, None
 				raise AuthFailed(
 					"SMP rejected a freshly issued token. Either the credentials are "
 					"wrong, or another session (a human on tagmeter.com, or a second "
@@ -354,8 +379,7 @@ class TagMeterClient:
 			return Outcome.TRANSPORT_ERROR, None
 		if isinstance(parsed, list) and not parsed:
 			# get_customer_info answers a bare empty list -- HTTP 200, no code
-			# field -- when the token has expired, where get_latest_amr answers
-			# a proper {"code": 401}. Measured 2026-09-09 on an expired token.
+			# field -- when the token has expired. Measured 2026-09-09.
 			# Without this, an expired token on that endpoint classifies as
 			# BAD_RESPONSE and never triggers the refresh-and-retry.
 			return Outcome.UNAUTHORIZED, None
@@ -363,6 +387,15 @@ class TagMeterClient:
 			return Outcome.BAD_RESPONSE, None
 		code = parsed.get("code")
 		if code == 200:
+			# ...and get_latest_amr has a third way of saying it: code 200 with
+			# the failure in the message. Measured 2026-09-11. This one is the
+			# dangerous shape, because the body is well-formed and empty, so
+			# parse_amr returns None and the caller records "no AMR record" --
+			# a real, common state for this fleet. Left unchecked, every read
+			# fails silently as "nothing new to report" until a human notices
+			# the whole fleet has gone quiet.
+			if reports_auth_failure(parsed):
+				return Outcome.UNAUTHORIZED, parsed
 			return Outcome.OK, parsed
 		if code == 401:
 			return Outcome.UNAUTHORIZED, parsed
