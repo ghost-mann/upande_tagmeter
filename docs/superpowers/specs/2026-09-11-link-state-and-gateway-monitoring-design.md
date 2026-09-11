@@ -203,6 +203,53 @@ Existing Fleet, Telemetry, Valve Control, Dashboard and Alarms groups are
 unchanged. The existing Online/Offline tiles keep working because `online` is
 preserved.
 
+### Dashboard (`/tagmeter`)
+
+`www/tagmeter.py` `build_payload()` gains:
+
+- `link_state` and `gateway` on each meter dict.
+- A `gateways` list — one entry per `TagMeter Gateway` with `gateway_id`,
+  `label`, `online`, `last_heartbeat`, hours since heartbeat, `healthy`
+  (the combined rule), and the count of meters bound to it.
+- `kpi.gateways_down` and `kpi.meters_behind_down_gateway`.
+
+`www/tagmeter.html` gains:
+
+- A **Network** view in the left nav, listing gateways with health, heartbeat
+  age, GPS fix and bound-meter count.
+- `link_state` as a column in the meters table and as a pill in the meter
+  detail panel, so the reason for silence is visible next to the meter.
+- A banner at the top of the dashboard when any gateway is unhealthy, naming
+  it and the number of meters behind it. This is the one piece of fleet state
+  that changes how every other number on the page should be read.
+
+The existing recency bands (`live` / `recent` / `stale` / `cold`) stay as they
+are. They describe *how long* since a reading; `link_state` describes *why*.
+Both are useful and they are not redundant.
+
+### Valve control on the dashboard
+
+Valve toggling already exists: `valveUI()` (`tagmeter.html:881`) renders
+Open/Close buttons that POST to `valve.set_valve` with the CSRF token, gated on
+`can_command` and refused while `in_flight` is set. It is mounted at
+`detail-valve` (fleet-grid detail) and `flow-valve` (Flow view).
+
+The gap is that the **Valve Board is read-only**. Work required:
+
+- Add an **Action** column to `valve-table` with per-row Open/Close buttons,
+  reusing `valveUI`'s call path and its three guards (permission, in-flight,
+  confirm dialog). No new endpoint — `valve.set_valve` is already whitelisted
+  and does its own permission and eligibility checks server-side.
+- Show `link_state` in the Valve Board's Reachable column, so an operator can
+  see whether a queued command will sit behind a dead gateway or a dead meter.
+- Fix the stale empty-state hint at `tagmeter.html:733`, which tells users to
+  "open a Quinto meter in the desk and use the valve toggle" — it predates the
+  dashboard toggle and now sends people away from the working control.
+
+**Server-side authority is unchanged.** The dashboard must not gain any ability
+the desk does not already have; `set_valve` remains the single entry point and
+keeps enforcing that only Quinto Prepaid meters can be actuated.
+
 ## Data flow
 
 ```
