@@ -2,6 +2,57 @@
 frappe.listview_settings["Water Meter"] = {
 	add_fields: ["online", "status", "last_seen", "meter_profile"],
 
+	onload(listview) {
+		// A full sweep is serial -- the SMP has no bulk read -- so it runs in a
+		// background worker rather than holding the request open for minutes.
+		listview.page.add_menu_item(__("Pull readings for every meter"), () => {
+			frappe.call({
+				method: "upande_tagmeter.sync.enqueue_fleet_sync",
+				freeze: true,
+				freeze_message: __("Handing the sweep to a worker..."),
+				callback(r) {
+					const res = r.message || {};
+					frappe.msgprint({
+						title: __("Sweep started"),
+						indicator: "blue",
+						message: __(
+							"Polling {0} meters in the background, one at a time. It takes a couple of minutes; readings and link states update as it goes. You can leave this page.",
+							[res.meters || "all"],
+						),
+					});
+				},
+			});
+		});
+
+		// Selected rows only. Each meter is a separate call to the SMP taken
+		// serially, so this is capped server-side at 25 -- for the whole fleet
+		// use the menu item above, which runs in a worker.
+		listview.page.add_actions_menu_item(__("Pull readings now"), () => {
+			const names = listview.get_checked_items(true);
+			if (!names.length) {
+				frappe.msgprint(__("Select the meters you want to poll."));
+				return;
+			}
+			frappe.call({
+				method: "upande_tagmeter.sync.poll_many",
+				args: { meter_sns: names },
+				freeze: true,
+				freeze_message: __("Asking the SMP about {0} meters...", [names.length]),
+				callback(r) {
+					const res = r.message || {};
+					const tally = Object.entries(res.tally || {})
+						.map(([k, v]) => `${v} ${k}`)
+						.join(", ");
+					frappe.show_alert({
+						message: __("Polled {0}: {1}", [res.polled, tally || __("no results")]),
+						indicator: res.failures && res.failures.length ? "orange" : "green",
+					});
+					listview.refresh();
+				},
+			});
+		}, false);
+	},
+
 	get_indicator(doc) {
 		if (doc.status === "Decommissioned") {
 			return [__("Decommissioned"), "gray", "status,=,Decommissioned"];
@@ -44,9 +95,12 @@ function poll(frm) {
 
 // The switch is a view of `valve_reported` -- what the meter actually said --
 // never of the request. A toggle that snapped to the requested position would
-// imply the valve had moved, when on Class B the downlink may not be delivered
-// for hours. So while a command is in flight the switch shows the requested
-// position but is disabled and labelled as pending.
+// imply the valve had moved when only the request had been accepted, so while a
+// command is in flight it shows the requested position and says so.
+//
+// It stays USABLE though: the server supersedes a pending command rather than
+// refusing the next one, as the vendor's own console does, so disabling the
+// switch here would enforce a lock the server no longer has.
 function render_valve(frm) {
 	const wrapper = frm.get_field("valve_toggle_html").$wrapper;
 
@@ -68,12 +122,12 @@ function render_valve(frm) {
 	const shown = in_flight && desired !== "Unknown" ? desired : reported;
 	const is_open = shown === "Open";
 	const known = shown === "Open" || shown === "Closed";
-	const disabled = Boolean(in_flight) || !frappe.model.can_write("Meter Command");
+	const disabled = !frappe.model.can_write("Meter Command");
 
 	let note = "";
 	if (in_flight) {
 		note = `<div class="tm-note tm-pending">${__(
-			"Command {0} is in flight. The meter answers only in scheduled ping slots, so this can take hours.",
+			"Command {0} is in flight. An actuated meter answers in seconds and its reading reaches the SMP about two minutes later, so this usually confirms within three minutes.",
 			[`<a href="/app/meter-command/${encodeURIComponent(in_flight)}">${frappe.utils.escape_html(in_flight)}</a>`],
 		)}</div>`;
 	} else if (desired !== "Unknown" && desired !== reported) {
@@ -112,7 +166,7 @@ function render_valve(frm) {
 		<div class="tm-valve">
 			<div class="tm-switch" data-on="${is_open ? 1 : 0}" data-known="${known ? 1 : 0}"
 				aria-disabled="${disabled}" role="switch" aria-checked="${is_open}"
-				title="${disabled ? __("A command is in flight") : __("Click to change")}">
+				title="${disabled ? __("You cannot issue commands") : __("Click to change")}">
 				<div class="tm-knob"></div>
 			</div>
 			<div>
@@ -140,7 +194,7 @@ function set_valve(frm, action) {
 	const verb = action === "open" ? __("open") : __("close");
 	frappe.confirm(
 		__(
-			"Ask meter {0} to {1} its valve?<br><br>The SMP accepts this immediately, but that only means it was <b>queued</b> — not that the valve moved. Confirmation arrives with the meter's next reading, which can take hours.",
+			"Ask meter {0} to {1} its valve?<br><br>The SMP accepts this immediately, but that only means it was <b>queued</b> — not that the valve moved. Confirmation arrives with the meter's next reading, usually within about three minutes.",
 			[frm.doc.name, verb],
 		),
 		() => {
