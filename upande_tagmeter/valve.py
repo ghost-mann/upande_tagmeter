@@ -1,14 +1,27 @@
 """Valve control through the SMP, with honest confirmation.
 
 The SMP answers ``"Operation success!"`` the moment it accepts a request into
-its downlink queue. That is not the valve moving. On Class B the meter listens
-only in scheduled ping slots, and the one round trip measured so far -- a
-prepaid recharge on 2026-08-19 -- took about eleven hours.
+its downlink queue. That is not the valve moving, so this module never claims it
+did: it records what was asked (``valve_desired``), what the meter last reported
+(``valve_reported``), and confirms a command only when a reading *taken after
+the command was sent* shows the requested state.
 
-So this module never claims a valve moved. It records what was asked
-(``valve_desired``), what the meter last reported (``valve_reported``), and
-confirms a command only when a reading *taken after the command was sent* shows
-the requested state.
+**Timing, corrected 2026-09-11.** An earlier version of this file argued that a
+round trip took about eleven hours, from a prepaid recharge measured on
+2026-08-19. That was wrong, and it made the whole module too cautious.
+
+The vendor's own console history, captured from its internal API, shows what
+actually happens: the meter acts on a downlink within ~15 seconds, and its
+uplink reaches the SMP a consistent ~2m04s later -- ``meterTime 11:28:46`` ->
+``createTime 11:30:50``, the same gap on every row. That history also holds two
+confirmations **ten seconds apart**, so issuing commands back to back is normal
+and the platform has no lock of its own.
+
+The eleven hours was the meters' *idle* AMR cadence (9-21h) mistaken for the
+actuation cycle. They are different things: an untouched meter reports twice a
+day, an actuated one answers immediately. Conflating them produced a 26-hour
+expiry and an in-flight lock that took a meter out of service for a day over a
+command that had already succeeded.
 """
 
 import frappe
@@ -17,14 +30,39 @@ from frappe.utils import add_to_date, now_datetime
 from upande_tagmeter.sync import get_client
 from upande_tagmeter.vendor.errors import AuthFailed, BlockedByVendor, Outcome
 
-# Comfortably clears one 12-hour AMR cycle. A shorter window produces false
-# failures on Class B, where a command legitimately waits hours.
-DEFAULT_EXPIRY_HOURS = 26
+# Measured 2026-09-11 against the vendor's own console history: a meter acts on
+# a downlink within ~15s and its uplink lands in the SMP a fixed ~2m04s later
+# (meterTime 11:28:46 -> createTime 11:30:50, repeatedly). Two confirmations ten
+# seconds apart are in that history, so back-to-back commands are normal.
+#
+# An earlier 26-HOUR expiry came from reading the meters' *idle* AMR cadence
+# (9-21h) as the actuation cycle. It is not: idle telemetry and command response
+# are different things, and conflating them locked meters out for a day.
+VALVE_TIMEOUT_MINUTES = 10
+
+# A second command for the SAME state this soon is a double-click, not intent.
+# Returning the existing command keeps it idempotent without a second downlink.
+DUPLICATE_WINDOW_SECONDS = 30
 
 ACTIONS = {
 	"open": {"command_type": "valve_open", "vendor": "Open", "requested_state": "Open"},
 	"close": {"command_type": "valve_close", "vendor": "Close", "requested_state": "Closed"},
 }
+
+
+def _pending(water_meter: str):
+	"""The newest still-Queued command for this meter, or None.
+
+	Read from Meter Command rather than Water Meter.valve_in_flight: the field
+	is a convenience pointer that a release or a crash can leave stale, while
+	the command's own status is the fact.
+	"""
+	rows = frappe.get_all(
+		"Meter Command", filters={"water_meter": water_meter, "status": "Queued"},
+		fields=["name", "requested_state", "enqueued_at"],
+		order_by="enqueued_at desc", limit_page_length=1,
+	)
+	return rows[0] if rows else None
 
 
 @frappe.whitelist()
@@ -45,26 +83,44 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 			f"{meter.name} is profile {meter.meter_profile!r} and has no valve. Only the "
 			"Quinto Prepaid meters can be actuated."
 		)
-	if meter.valve_reported == spec["requested_state"]:
-		# A no-op still takes the meter out of service. The in-flight lock below
-		# holds until a reading confirms the command, and readings arrive on the
-		# meter's own 9-21 hour cycle -- so asking an open valve to open costs a
-		# day of control and changes nothing. Measured 2026-09-11: two of three
-		# locked meters were in exactly this state.
+	pending = _pending(meter.name)
+
+	# What the valve is heading towards, which is NOT what it last reported:
+	# reported lags a command by roughly two minutes, so on open -> close -> open
+	# the third click would be refused against a stale "Open" without this.
+	effective = pending.requested_state if pending else meter.valve_reported
+
+	if effective == spec["requested_state"]:
+		if pending:
+			age = (now_datetime() - pending.enqueued_at).total_seconds()
+			if age <= DUPLICATE_WINDOW_SECONDS:
+				# Double-click. Hand back the command already in flight rather
+				# than putting a second identical downlink on the air.
+				return {"command": pending.name, "status": "Queued", "sent": False,
+				        "reason": "identical command already in flight"}
+			frappe.throw(
+				f"{pending.name} is already asking {meter.name} to go "
+				f"{spec['requested_state']}. Wait for it, or release it."
+			)
 		frappe.throw(
-			f"{meter.name} already reports its valve {meter.valve_reported}. Issuing "
-			f"this would lock the meter until a reading confirms a change that "
-			f"cannot happen. Nothing was sent."
-		)
-	if meter.valve_in_flight and frappe.db.get_value(
-		"Meter Command", meter.valve_in_flight, "status"
-	) == "Queued":
-		frappe.throw(
-			f"{meter.valve_in_flight} is still in flight for this meter. Two competing "
-			"downlinks make the outcome ambiguous -- wait for it to confirm or expire."
+			f"{meter.name} already reports its valve {meter.valve_reported}, so this "
+			f"would change nothing. Nothing was sent."
 		)
 
-	hours = float(expiry_hours or DEFAULT_EXPIRY_HOURS)
+	if pending:
+		# Last write wins, which is what the vendor's own console does -- it
+		# accepts commands back to back with no lock. Superseding keeps our
+		# record honest instead of pretending the earlier request is still live.
+		_close_out(frappe.get_doc("Meter Command", pending.name), "Expired", failure_reason=(
+			f"Superseded at {now_datetime():%Y-%m-%d %H:%M:%S} by a request for "
+			f"{spec['requested_state']} on the same meter. The SMP had accepted this "
+			f"downlink, so the valve may still have acted on it before the newer one "
+			f"arrived."
+		))
+
+	minutes = float(expiry_hours * 60) if expiry_hours else float(
+		frappe.conf.get("tagmeter_valve_timeout_minutes") or VALVE_TIMEOUT_MINUTES
+	)
 	command = frappe.get_doc({
 		"doctype": "Meter Command",
 		"water_meter": meter.name,
@@ -73,7 +129,7 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 		"status": "Queued",
 		"requested_by": frappe.session.user,
 		"enqueued_at": now_datetime(),
-		"expires_at": add_to_date(now_datetime(), hours=hours),
+		"expires_at": add_to_date(now_datetime(), minutes=minutes),
 		"attempts": 0,
 	})
 	command.insert(ignore_permissions=True)
@@ -176,10 +232,11 @@ def release(water_meter: str, reason: str | None = None) -> dict:
 	cancelled command rather than the lock being silently dropped.
 	"""
 	meter = frappe.get_doc("Water Meter", water_meter)
-	name = meter.valve_in_flight
-	if not name or frappe.db.get_value("Meter Command", name, "status") != "Queued":
-		frappe.throw(f"{meter.name} has no command in flight, so there is no lock to lift.")
+	pending = _pending(water_meter)
+	if not pending:
+		frappe.throw(f"{meter.name} has no command in flight, so there is nothing to cancel.")
 
+	name = pending.name
 	command = frappe.get_doc("Meter Command", name)
 	note = f" Reason given: {reason}" if reason else ""
 	_close_out(command, "Expired", failure_reason=(
@@ -191,6 +248,43 @@ def release(water_meter: str, reason: str | None = None) -> dict:
 	# only the lock is lifted. Clearing it would erase what was asked for.
 	meter.db_set("valve_in_flight", None, update_modified=False)
 	return {"released": name, "meter": meter.name}
+
+
+@frappe.whitelist()
+def check(water_meter: str) -> dict:
+	"""Poll one meter now and report where its valve request stands.
+
+	This is what makes live feedback possible. A command reaches the meter in
+	seconds, but its uplink only appears in the SMP a fixed ~2m04s later, so a
+	caller that polls this every few seconds sees Queued turn into Confirmed
+	within about three minutes rather than waiting on the 4-hourly sweep.
+
+	One meter, one API call. Cheap enough to poll; not cheap enough to poll
+	forever, so callers are expected to stop once ``settled`` is true.
+	"""
+	from upande_tagmeter.sync import poll_meter
+
+	outcome = poll_meter(water_meter)
+	meter = frappe.get_doc("Water Meter", water_meter)
+	pending = _pending(water_meter)
+
+	status = None
+	if pending:
+		status = "Queued"
+	elif meter.valve_in_flight:
+		status = frappe.db.get_value("Meter Command", meter.valve_in_flight, "status")
+
+	return {
+		"meter": water_meter,
+		"poll": outcome.get("status"),
+		"valve_reported": meter.valve_reported,
+		"valve_desired": meter.valve_desired,
+		"command": pending.name if pending else meter.valve_in_flight,
+		"status": status,
+		"last_seen": meter.last_seen,
+		# The caller stops polling on this rather than guessing an interval.
+		"settled": not pending,
+	}
 
 
 @frappe.whitelist()
@@ -212,8 +306,9 @@ def watchdog() -> dict:
 		if row.expires_at and now_datetime() > row.expires_at:
 			_close_out(command, "Expired", failure_reason=(
 				"The meter never reported the requested state before the command expired. "
-				"On Class B this usually means the meter is not reachable on the SMP's "
-				"network server, or has stopped transmitting."
+				"An actuated meter answers within seconds and its uplink reaches the SMP "
+				"about two minutes later, so passing the timeout means the meter is not "
+				"reachable on the SMP's network server, or has stopped transmitting."
 			))
 			expired += 1
 			continue

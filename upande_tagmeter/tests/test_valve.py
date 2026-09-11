@@ -82,16 +82,26 @@ class TestValve(IntegrationTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			valve.set_valve(sn, "open")
 
-	def test_a_second_command_is_refused_while_one_is_in_flight(self):
-		"""Two competing downlinks make the outcome ambiguous."""
+	def test_an_opposite_command_supersedes_the_one_in_flight(self):
+		"""The vendor's console accepts commands back to back with no lock, and
+		its history holds two confirmations ten seconds apart. Last write wins."""
 		sn = "68753500171002"
 		self._meter(sn)
 		client = FakeClient(OK, OK)
 		with patch.object(valve, "get_client", return_value=client):
-			valve.set_valve(sn, "close")
-			with self.assertRaises(frappe.ValidationError):
-				valve.set_valve(sn, "open")
-		self.assertEqual(len(client.sent), 1)
+			first = valve.set_valve(sn, "close")
+			second = valve.set_valve(sn, "open")
+
+		self.assertEqual(len(client.sent), 2, "both downlinks must reach the SMP")
+		self.assertEqual(client.sent, [(sn, "Close"), (sn, "Open")])
+		superseded = frappe.get_doc("Meter Command", first["command"])
+		self.assertEqual(superseded.status, "Expired")
+		self.assertIn("Superseded", superseded.failure_reason)
+		self.assertEqual(
+			frappe.db.get_value("Meter Command", second["command"], "status"), "Queued")
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_in_flight"),
+		                 second["command"])
+		valve.release(sn)
 
 	def test_an_unknown_action_is_refused(self):
 		sn = "68753500171003"
@@ -301,3 +311,48 @@ class TestValve(IntegrationTestCase):
 			valve.set_valve(sn, "close")
 		valve.release(sn)
 		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_desired"), "Closed")
+
+	# ── rapid toggling ───────────────────────────────────────────────────────
+
+	def test_a_double_click_returns_the_same_command_not_a_second_downlink(self):
+		"""Identical intent inside the duplicate window is a slipped finger, not
+		a second request. Two identical downlinks would be pure air-time."""
+		sn = "68753500171030"
+		self._meter(sn)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			first = valve.set_valve(sn, "close")
+			again = valve.set_valve(sn, "close")
+
+		self.assertEqual(again["command"], first["command"])
+		self.assertFalse(again["sent"])
+		self.assertEqual(len(client.sent), 1, "the second click must not transmit")
+		valve.release(sn)
+
+	def test_open_close_open_is_not_blocked_by_the_stale_reported_state(self):
+		"""valve_reported lags a command by ~2 minutes. Judging a new request
+		against it would refuse the third click of open -> close -> open."""
+		sn = "68753500171031"
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, "valve_reported", "Open", update_modified=False)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(sn, "close")
+			# Reported is still "Open" here -- only the pending request says Closed.
+			res = valve.set_valve(sn, "open")
+
+		self.assertEqual(client.sent, [(sn, "Close"), (sn, "Open")])
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Queued")
+		valve.release(sn)
+
+	def test_the_expiry_is_minutes_not_a_day(self):
+		sn = "68753500171032"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "close")
+		command = frappe.get_doc("Meter Command", res["command"])
+		window = (command.expires_at - command.enqueued_at).total_seconds() / 60
+		self.assertAlmostEqual(window, valve.VALVE_TIMEOUT_MINUTES, delta=1)
+		self.assertLess(window, 60, "a 26-hour expiry was the original defect")
+		valve.release(sn)
