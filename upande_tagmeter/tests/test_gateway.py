@@ -137,3 +137,31 @@ class TestGatewaySync(IntegrationTestCase):
 
 		last_heartbeat = frappe.db.get_value("TagMeter Gateway", gid, "last_heartbeat")
 		self.assertEqual(last_heartbeat, datetime(2026, 9, 10, 9, 30, 0))
+
+
+from upande_tagmeter.setup import import_gateways
+
+
+class TestGatewaySeeding(IntegrationTestCase):
+	def test_the_shipped_tsv_seeds_both_gateways(self):
+		result = import_gateways.run(dry_run=True)
+		self.assertEqual(result["problems"], [])
+		self.assertEqual(result["created"] + result["updated"], 2)
+
+	def test_run_is_idempotent(self):
+		first = import_gateways.run()
+		second = import_gateways.run()
+		self.assertEqual(second["created"], 0)
+		self.assertEqual(second["updated"], first["created"] + first["updated"])
+
+	def test_a_meter_can_be_bound_to_a_gateway(self):
+		import_gateways.run()
+		sn = "68753500170902"
+		if not frappe.db.exists("Water Meter", sn):
+			frappe.get_doc({
+				"doctype": "Water Meter", "meter_sn": sn, "meter_profile": "Quinto Prepaid",
+				"gateway": "0C4EC0FFFE00E97F",
+			}).insert()
+		self.assertEqual(
+			frappe.db.get_value("Water Meter", sn, "gateway"), "0C4EC0FFFE00E97F"
+		)

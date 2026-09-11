@@ -25,6 +25,7 @@
   "site",
   "cb_location",
   "zone",
+  "gateway",
   "state_sb",
   "status",
   "online",
@@ -146,6 +147,13 @@
    "fieldname": "zone",
    "label": "Zone",
    "fieldtype": "Data"
+  },
+  {
+   "fieldname": "gateway",
+   "fieldtype": "Link",
+   "label": "Gateway",
+   "options": "TagMeter Gateway",
+   "description": "The gateway this meter is bound to on the SMP. Nullable -- an unbound meter can reach Silent but never Gateway Down."
   },
   {
    "fieldname": "state_sb",
