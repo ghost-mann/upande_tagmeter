@@ -228,6 +228,7 @@ sync.sync_fleet()                 # poll every meter
 sync.sync_fleet(limit=3)          # poll a few
 sync.poll_meter("68753500170871") # poll one
 sync.refresh_online_flags()       # recompute online, no API calls
+sync.refresh_link_states()        # recompute link_state, no API calls
 
 from upande_tagmeter import valve
 valve.set_valve("68753500170871", "close")   # queue a command

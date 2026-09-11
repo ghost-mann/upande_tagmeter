@@ -289,7 +289,12 @@ def sync_fleet(limit: int | None = None, only_profile: str | None = None) -> dic
 			failures.append(name)
 			tally["error"] = tally.get("error", 0) + 1
 
+	# Both derived flags are recomputed from the same sweep. online alone is
+	# not enough: this pass has just moved last_seen on up to 100 meters, and
+	# leaving link_state to the hourly job would show a diagnosis computed
+	# against readings up to an hour older than the detection beside it.
 	refresh_online_flags()
+	refresh_link_states()
 	return {"polled": len(names), "tally": tally, "failures": failures}
 
 
@@ -362,10 +367,25 @@ def refresh_link_states() -> dict:
 	down = set(gateway_module.unhealthy_gateways())
 
 	buckets: dict[str, list[str]] = {}
+	retired: list[str] = []
 	for row in frappe.get_all(
 		"Water Meter",
-		fields=["name", "last_seen", "last_sync_outcome", "gateway", "link_state"],
+		fields=["name", "status", "last_seen", "last_sync_outcome", "gateway", "link_state"],
 	):
+		if row.status == "Decommissioned":
+			# A retired meter is quiet on purpose. Left in the sweep it lands in
+			# Silent and tells an operator to send a technician to a meter that
+			# is no longer there. Clearing rather than merely skipping, because
+			# a meter decommissioned while Silent would otherwise keep that
+			# verdict on the tile forever.
+			#
+			# Compared in Python, not as a `!=` filter: SQL inequality also
+			# drops rows where status is NULL, which would silently skip a
+			# half-commissioned meter -- exactly the kind this view is for.
+			if row.link_state:
+				retired.append(row.name)
+			continue
+
 		# Order matters: a meter the SMP holds nothing for is not "silent", and
 		# neither is one that has genuinely never spoken.
 		if row.last_sync_outcome == "server_error":
@@ -389,11 +409,15 @@ def refresh_link_states() -> dict:
 	for state, names in buckets.items():
 		frappe.db.set_value("Water Meter", {"name": ("in", names)}, "link_state", state,
 		                    update_modified=False)
+	if retired:
+		frappe.db.set_value("Water Meter", {"name": ("in", retired)}, "link_state", "",
+		                    update_modified=False)
 
 	return {
 		"cycle_hours": cycle,
 		"unhealthy_gateways": sorted(down),
 		"changed": {state: len(names) for state, names in buckets.items()},
+		"cleared_decommissioned": len(retired),
 	}
 
 
