@@ -792,24 +792,32 @@ table("valve-table", [
       : '<span class="pill bad">not reachable</span>'}<div>${stateCell(m)}</div>` },
   { h: "Action", f: m => {
       if (!CAN_COMMAND) return '<span style="color:var(--ink-faint)">no permission</span>';
-      if (m.in_flight) {
-        // A grey button reads as "broken". Say what is actually being waited
-        // on: the meter's next uplink, which on this fleet is 9-21 hours away.
-        return `<div class="valvewait">
-            <span class="pill warn">waiting on meter</span>
-            <span class="note">last reported ${esc(ago(m.hours))} · confirms on its next uplink
-              · <a href="/app/meter-command/${encodeURIComponent(m.in_flight)}">${esc(m.in_flight)}</a></span>
-            <button class="btn btn--quiet" data-vrel="${esc(m.sn)}">Release lock</button>
-          </div>`;
-      }
-      // Asking for the state already reported is a no-op that would lock the
-      // meter for a day and change nothing. The server refuses it too.
-      const isOpen = m.valve === "Open", isClosed = m.valve === "Closed";
-      const why = s => ` title="Already reports ${s}. Issuing this would lock the meter until a reading confirms a change that cannot happen."`;
-      return `<button class="btn btn--open" data-vsn="${esc(m.sn)}" data-vact="open"
-                ${isOpen ? "disabled" + why("Open") : ""}>Open</button>
-              <button class="btn btn--close" data-vsn="${esc(m.sn)}" data-vact="close"
-                ${isClosed ? "disabled" + why("Closed") : ""}>Close</button>`;
+      // A command in flight no longer blocks the next one -- the server
+      // supersedes, as the vendor's own console does. So the buttons stay live;
+      // only the direction that would be a no-op is disabled.
+      //
+      // Which direction that is depends on what the valve is heading TOWARDS,
+      // not what it last reported: reported lags by ~2 minutes, so judging
+      // against it would refuse the third click of open -> close -> open.
+      const effective = m.in_flight ? m.valve_desired : m.valve;
+      const why = s => ` title="Already ${m.in_flight ? "on its way to" : "reporting"} ${s} — this would change nothing."`;
+      const buttons =
+        `<button class="btn btn--open" data-vsn="${esc(m.sn)}" data-vact="open"
+           ${effective === "Open" ? "disabled" + why("Open") : ""}>Open</button>
+         <button class="btn btn--close" data-vsn="${esc(m.sn)}" data-vact="close"
+           ${effective === "Closed" ? "disabled" + why("Closed") : ""}>Close</button>`;
+
+      if (!m.in_flight) return buttons;
+
+      // Still in flight: show what is pending alongside the live buttons, so
+      // the row explains itself without taking the meter out of service.
+      return `<div class="valvewait">
+          <div>${buttons}</div>
+          <span class="note">${esc(m.valve_desired || "")} pending ·
+            <a href="/app/meter-command/${encodeURIComponent(m.in_flight)}">${esc(m.in_flight)}</a>
+            · confirms about 3 min after sending
+            · <a href="#" data-vrel="${esc(m.sn)}">cancel</a></span>
+        </div>`;
     } },
 ], valved);
 
@@ -906,28 +914,29 @@ function watchCommand(sn, act, command) {
 }
 
 $("valve-table").addEventListener("click", async e => {
-  const b = e.target.closest("button[data-vrel]");
-  if (!b || b.disabled) return;
+  const b = e.target.closest("[data-vrel]");
+  if (!b || b.dataset.busy) return;
+  e.preventDefault();   // it is an <a href="#"> in the in-flight row
   const m = TM.meters.find(x => x.sn === b.dataset.vrel);
   if (!m) return;
   const who = nameOf(m) === m.sn ? m.sn : `${nameOf(m)} (${m.sn})`;
   // The lock exists so two downlinks cannot race. Lifting it reintroduces
   // exactly that risk, so the dialog has to say so rather than just confirm.
   if (!confirm(
-    `Release the lock on ${who}?\n\n` +
-    `${m.in_flight} is cancelled and the meter becomes controllable again.\n\n` +
+    `Cancel ${m.in_flight} on ${who}?\n\n` +
+    `The meter stays controllable either way — you do not need to cancel to send ` +
+    `another command, since a new one supersedes this.\n\n` +
     `This does NOT recall the downlink. The SMP already accepted it, so the valve ` +
-    `may still act on it — and a new command could then race with it. Release only ` +
-    `if you are willing to accept that.`)) return;
-  const reason = prompt("Why are you releasing it? (recorded against the cancelled command)", "") || "";
-  b.disabled = true;
+    `may still act on it.`)) return;
+  const reason = prompt("Why are you cancelling it? (recorded against the command)", "") || "";
+  b.dataset.busy = "1";
   try {
     const r = await call("upande_tagmeter.valve.release", { water_meter: m.sn, reason });
-    alert(`Released ${r.released}. ${who} is controllable again.`);
+    alert(`Cancelled ${r.released} on ${who}.`);
     location.reload();
   } catch (err) {
-    alert("Could not release the lock:\n\n" + err.message);
-    b.disabled = false;
+    alert("Could not cancel the command:\n\n" + err.message);
+    delete b.dataset.busy;
   }
 });
 function refreshNames() { renderTables(); fillPickers(); fleetTitles();
