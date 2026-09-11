@@ -45,6 +45,17 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 			f"{meter.name} is profile {meter.meter_profile!r} and has no valve. Only the "
 			"Quinto Prepaid meters can be actuated."
 		)
+	if meter.valve_reported == spec["requested_state"]:
+		# A no-op still takes the meter out of service. The in-flight lock below
+		# holds until a reading confirms the command, and readings arrive on the
+		# meter's own 9-21 hour cycle -- so asking an open valve to open costs a
+		# day of control and changes nothing. Measured 2026-09-11: two of three
+		# locked meters were in exactly this state.
+		frappe.throw(
+			f"{meter.name} already reports its valve {meter.valve_reported}. Issuing "
+			f"this would lock the meter until a reading confirms a change that "
+			f"cannot happen. Nothing was sent."
+		)
 	if meter.valve_in_flight and frappe.db.get_value(
 		"Meter Command", meter.valve_in_flight, "status"
 	) == "Queued":
@@ -148,6 +159,38 @@ def confirm_from_reading(water_meter: str, reading_name: str, valve_state: str, 
 		_close_out(command, "Confirmed")
 		return command.name
 	return None
+
+
+@frappe.whitelist()
+def release(water_meter: str, reason: str | None = None) -> dict:
+	"""Cancel the in-flight command on a meter and lift its lock.
+
+	The lock exists so two downlinks cannot race, and it lasts until the command
+	confirms or expires. Confirmation needs a reading, and this fleet reports
+	every 9-21 hours, so a meter can sit uncontrollable for most of a day over a
+	command that already did its job.
+
+	This is the escape hatch. It does **not** recall the downlink: if the SMP
+	already accepted it, the valve may still move. The next command is therefore
+	genuinely ambiguous, which is why the reason is recorded against the
+	cancelled command rather than the lock being silently dropped.
+	"""
+	meter = frappe.get_doc("Water Meter", water_meter)
+	name = meter.valve_in_flight
+	if not name or frappe.db.get_value("Meter Command", name, "status") != "Queued":
+		frappe.throw(f"{meter.name} has no command in flight, so there is no lock to lift.")
+
+	command = frappe.get_doc("Meter Command", name)
+	note = f" Reason given: {reason}" if reason else ""
+	_close_out(command, "Expired", failure_reason=(
+		f"Lock released by {frappe.session.user} at {now_datetime():%Y-%m-%d %H:%M} before "
+		f"the meter confirmed.{note} The SMP had already accepted this downlink, so the "
+		f"valve may still act on it."
+	))
+	# valve_desired is deliberately left alone: the operator's request stood,
+	# only the lock is lifted. Clearing it would erase what was asked for.
+	meter.db_set("valve_in_flight", None, update_modified=False)
+	return {"released": name, "meter": meter.name}
 
 
 @frappe.whitelist()

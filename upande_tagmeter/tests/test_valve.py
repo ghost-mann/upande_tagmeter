@@ -223,3 +223,81 @@ class TestValve(IntegrationTestCase):
 		self.assertEqual(rows[sn]["valve_reported"], "Open")
 		# in-flight distinguishes "waiting" from "not obeying"
 		self.assertEqual(rows[sn]["valve_in_flight"], res["command"])
+
+	# ── no-op guard ──────────────────────────────────────────────────────────
+
+	def test_asking_for_the_state_the_valve_already_reports_is_refused(self):
+		"""A no-op still takes the meter out of service for as long as
+		confirmation takes.
+
+		Measured 2026-09-11: two of three locked meters had been asked to Open
+		while already reporting Open. Nothing could ever change, and the lock
+		would have held until the next uplink -- 20.8h away on one of them.
+		"""
+		sn = "68753500171020"
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, "valve_reported", "Open", update_modified=False)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			with self.assertRaises(frappe.ValidationError):
+				valve.set_valve(sn, "open")
+		self.assertEqual(client.sent, [], "nothing may reach the SMP")
+		self.assertEqual(frappe.db.count("Meter Command", {"water_meter": sn}), 0)
+		self.assertIsNone(frappe.db.get_value("Water Meter", sn, "valve_in_flight"))
+
+	def test_an_unknown_reported_state_never_blocks_a_command(self):
+		"""Unknown is the default on a meter that has never reported a valve
+		state. Treating it as a no-op would lock out every new meter."""
+		sn = "68753500171021"
+		self._meter(sn)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_reported"), "Unknown")
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "open")
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Queued")
+		valve.release(sn)  # the watchdog tests sweep every Queued row; do not leak one
+
+	def test_the_opposite_state_is_still_allowed(self):
+		sn = "68753500171022"
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, "valve_reported", "Closed", update_modified=False)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "open")
+		self.assertEqual(client.sent, [(sn, "Open")])
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Queued")
+		valve.release(sn)  # the watchdog tests sweep every Queued row; do not leak one
+
+	# ── releasing a stuck lock ───────────────────────────────────────────────
+
+	def test_releasing_cancels_the_command_and_frees_the_meter(self):
+		sn = "68753500171023"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "close")
+		out = valve.release(sn, reason="meter will not report for 20h")
+
+		self.assertEqual(out["released"], res["command"])
+		command = frappe.get_doc("Meter Command", res["command"])
+		self.assertEqual(command.status, "Expired")
+		self.assertIn("20h", command.failure_reason)
+		self.assertIn(frappe.session.user, command.failure_reason)
+		self.assertIsNone(frappe.db.get_value("Water Meter", sn, "valve_in_flight"))
+
+	def test_releasing_a_meter_with_nothing_in_flight_is_refused(self):
+		sn = "68753500171024"
+		self._meter(sn)
+		with self.assertRaises(frappe.ValidationError):
+			valve.release(sn)
+
+	def test_releasing_leaves_the_desired_state_as_the_operators_intent(self):
+		"""The request stood; only the lock is lifted. Clearing intent too would
+		erase what the operator asked for."""
+		sn = "68753500171025"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(sn, "close")
+		valve.release(sn)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_desired"), "Closed")
