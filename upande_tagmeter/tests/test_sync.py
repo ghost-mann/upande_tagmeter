@@ -5,6 +5,7 @@ tests/ at the app root covers how the vendor's wire behaviour is interpreted.
 """
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -262,3 +263,126 @@ class TestSync(IntegrationTestCase):
 		frappe.db.set_value("Water Meter", sn, "vendor_registered", 1, update_modified=False)
 		sync.sync_meter(sn, client=FakeClient((Outcome.SERVER_ERROR, None)))
 		self.assertTrue(frappe.db.get_value("Water Meter", sn, "vendor_registered"))
+
+	# ── link state ───────────────────────────────────────────────────────────
+
+	def _gateway(self, gid, healthy=True):
+		if not frappe.db.exists("TagMeter Gateway", gid):
+			frappe.get_doc({
+				"doctype": "TagMeter Gateway", "gateway_id": gid, "label": gid,
+			}).insert()
+		frappe.db.set_value("TagMeter Gateway", gid, {
+			"online": 1 if healthy else 0,
+			"last_heartbeat": now_datetime() - timedelta(minutes=5),
+			"last_polled_at": now_datetime(),
+		}, update_modified=False)
+		return gid
+
+	def _staged(self, sn, hours_ago, gateway=None, outcome="ok"):
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, {
+			"last_seen": None if hours_ago is None else now_datetime() - timedelta(hours=hours_ago),
+			"last_sync_outcome": outcome,
+			"gateway": gateway,
+		}, update_modified=False)
+		return sn
+
+	def test_link_state_table(self):
+		up = self._gateway("TESTGWUP00000001", healthy=True)
+		down = self._gateway("TESTGWDOWN000001", healthy=False)
+		cases = [
+			("68753500170910", 1, up, "ok", "Reporting"),
+			("68753500170911", 40, up, "ok", "Late"),
+			("68753500170912", 100, up, "ok", "Silent"),
+			("68753500170913", 100, down, "ok", "Gateway Down"),
+			("68753500170914", None, up, "ok", "Never Seen"),
+			("68753500170915", None, up, "server_error", "No Data on SMP"),
+			("68753500170916", 100, None, "ok", "Silent"),
+			# Fresh last_seen pins this branch against Reporting, not just Never Seen --
+			# the case that matters in production is a meter the vendor 500s on while
+			# it is otherwise reporting normally.
+			("68753500170919", 1, up, "server_error", "No Data on SMP"),
+		]
+		for sn, hours, gw, outcome, _expected in cases:
+			self._staged(sn, hours, gateway=gw, outcome=outcome)
+
+		sync.refresh_link_states()
+
+		for sn, _h, _g, _o, expected in cases:
+			self.assertEqual(
+				frappe.db.get_value("Water Meter", sn, "link_state"), expected,
+				f"{sn} should be {expected}",
+			)
+
+	def test_a_late_meter_is_late_even_behind_a_dead_gateway(self):
+		"""One missed report is jitter, not evidence. Promoting it would alarm on noise."""
+		down = self._gateway("TESTGWDOWN000002", healthy=False)
+		sn = self._staged("68753500170917", 40, gateway=down)
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Late")
+
+	def test_no_data_on_smp_wins_over_never_seen(self):
+		"""server_error means the SMP holds no AMR record -- a different problem."""
+		sn = self._staged("68753500170918", None, outcome="server_error")
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "No Data on SMP")
+
+	def test_a_decommissioned_meter_is_dropped_from_the_sweep(self):
+		"""A retired meter is quiet on purpose, not silently broken.
+
+		Left in the sweep it lands in the Silent tile and sends a technician to
+		a meter that is no longer there. Clearing, not merely skipping: one
+		decommissioned while Silent would otherwise keep that verdict forever.
+		"""
+		sn = self._staged("68753500170924", 100)
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Silent")
+
+		frappe.db.set_value("Water Meter", sn, "status", "Decommissioned", update_modified=False)
+		result = sync.refresh_link_states()
+		self.assertFalse(frappe.db.get_value("Water Meter", sn, "link_state"))
+		self.assertGreaterEqual(result["cleared_decommissioned"], 1)
+
+	def test_a_meter_with_no_status_is_still_swept(self):
+		"""SQL ``status != 'Decommissioned'`` also drops rows where status is NULL.
+
+		A half-commissioned meter is exactly the kind this view exists to
+		diagnose, so it must not be the one row the sweep silently skips.
+		"""
+		sn = self._staged("68753500170925", 1)
+		frappe.db.set_value("Water Meter", sn, {"status": None, "link_state": ""},
+		                    update_modified=False)
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Reporting")
+
+	def test_sync_fleet_refreshes_link_state_as_well_as_online(self):
+		"""The sweep moves last_seen on 100 meters; both derived flags follow it.
+
+		``only_profile`` is set to a profile no meter carries, so the sweep
+		polls nothing -- what is under test is the tail of sync_fleet, not the
+		polling.
+		"""
+		sn = self._staged("68753500170926", 100)
+		frappe.db.set_value("Water Meter", sn, "link_state", "", update_modified=False)
+		with patch.object(sync, "get_client", return_value=FakeClient()):
+			result = sync.sync_fleet(only_profile="No Such Profile")
+		self.assertEqual(result["polled"], 0)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Silent")
+
+	def test_refresh_link_states_does_not_move_the_online_flag(self):
+		"""Regression guard: online keeps its exact current rule and values."""
+		up = self._gateway("TESTGWUP00000002", healthy=True)
+		down = self._gateway("TESTGWDOWN000003", healthy=False)
+		fixture = [
+			("68753500170920", 1, up), ("68753500170921", 40, down),
+			("68753500170922", 100, down), ("68753500170923", None, up),
+		]
+		for sn, hours, gw in fixture:
+			self._staged(sn, hours, gw)
+		sync.refresh_online_flags()
+		before = {sn: frappe.db.get_value("Water Meter", sn, "online") for sn, _h, _g in fixture}
+
+		sync.refresh_link_states()
+
+		after = {sn: frappe.db.get_value("Water Meter", sn, "online") for sn, _h, _g in fixture}
+		self.assertEqual(before, after)

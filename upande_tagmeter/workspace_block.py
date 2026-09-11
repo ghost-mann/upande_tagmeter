@@ -31,6 +31,23 @@ GROUPS = [
 		 "The ten meters that have a valve", "#7c3aed",
 		 '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>'),
 	]),
+	("Network", [
+		("TagMeter Gateway", "/app/tagmeter-gateway", "Gateways",
+		 "Every gateway and its last heartbeat", "#0ea5e9",
+		 '<path d="M5 12.6a10 10 0 0 1 14 0"/><path d="M8.5 16a5.5 5.5 0 0 1 7 0"/>'
+		 '<line x1="12" y1="20" x2="12.01" y2="20"/><path d="M1.5 9a15 15 0 0 1 21 0"/>'),
+		("Water Meter", "/app/water-meter?link_state=Gateway%20Down", "Gateway Down",
+		 "Quiet because the network is, not the meter", "#dc2626",
+		 '<line x1="2" y1="2" x2="22" y2="22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>'
+		 '<path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><line x1="12" y1="20" x2="12.01" y2="20"/>'),
+		("Water Meter", "/app/water-meter?link_state=Silent", "Silent",
+		 "Gateway is healthy, so it is the meter", "#b91c1c",
+		 '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94"/>'
+		 '<line x1="1" y1="1" x2="23" y2="23"/>'),
+		("Water Meter", "/app/water-meter?link_state=Late", "Late",
+		 "Missed one expected report", "#d97706",
+		 '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+	]),
 	("Telemetry", [
 		("Meter Reading", "/app/meter-reading", "Readings",
 		 "Every reading pulled from the SMP", "#0891b2",

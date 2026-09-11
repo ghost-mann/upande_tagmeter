@@ -166,3 +166,34 @@ class TestRename(IntegrationTestCase):
 		out = api.rename_many(json.dumps([{"meter_sn": sn, "label": "Tap 9"}]))
 		self.assertEqual(len(out["saved"]), 1)
 		self.assertEqual(frappe.db.get_value("Water Meter", sn, "meter_label"), "Tap 9")
+
+
+from upande_tagmeter.www import tagmeter as dashboard
+
+
+class TestDashboardPayload(IntegrationTestCase):
+	def test_payload_carries_gateways_and_link_state(self):
+		payload = dashboard.build_payload()
+		self.assertIn("gateways", payload)
+		self.assertIn("gateways_down", payload["kpi"])
+		self.assertIn("meters_behind_down_gateway", payload["kpi"])
+		if payload["meters"]:
+			self.assertIn("link_state", payload["meters"][0])
+			self.assertIn("gateway", payload["meters"][0])
+
+	def test_an_unhealthy_gateway_is_reported_unhealthy(self):
+		gid = "TESTGWDASH000001"
+		if not frappe.db.exists("TagMeter Gateway", gid):
+			frappe.get_doc({
+				"doctype": "TagMeter Gateway", "gateway_id": gid, "label": "Dash GW",
+			}).insert()
+		frappe.db.set_value("TagMeter Gateway", gid, {
+			"online": 1,
+			"last_heartbeat": now_datetime() - timedelta(hours=48),
+			"last_polled_at": now_datetime(),
+		}, update_modified=False)
+
+		payload = dashboard.build_payload()
+		row = next(g for g in payload["gateways"] if g["id"] == gid)
+		self.assertFalse(row["healthy"], "a 48h-old heartbeat is not healthy")
+		self.assertGreaterEqual(payload["kpi"]["gateways_down"], 1)

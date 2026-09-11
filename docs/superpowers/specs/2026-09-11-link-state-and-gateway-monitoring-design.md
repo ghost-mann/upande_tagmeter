@@ -260,12 +260,18 @@ every 4h  sync_fleet()              -> Water Meter.last_seen, readings (unchange
                                     -> calls refresh_online_flags() at the end
 ```
 
-**Ordering matters.** `sync_gateways` must run before `refresh_online_flags`
-within the hourly slot, or `link_state` is computed against gateway rows up to
-an hour stale. Both are already `hooks.py` `scheduler_events.hourly` entries,
-which Frappe executes in list order, so `sync_gateways` is listed first. It is
-not a correctness bug if that order is ever violated — the next hour corrects
-it — but it delays a `Gateway Down` verdict by one cycle.
+**Ordering is preferred, not guaranteed.** `sync_gateways` should run before
+`refresh_link_states` within the hourly slot, or `link_state` is computed
+against gateway rows up to an hour stale, so `sync_gateways` is listed first in
+`hooks.py` `scheduler_events.hourly`.
+
+> **Corrected 2026-09-11, during implementation.** An earlier draft of this
+> section claimed Frappe *executes* hourly entries in list order. It does not —
+> each entry is enqueued as its own background job, and with more than one
+> worker they can run concurrently. Listing order is a hint, nothing stronger.
+> This costs nothing here: the three passes share no mutable state, and
+> `refresh_link_states` never reads `online`. A violated order delays a
+> `Gateway Down` verdict by one cycle; it is not a correctness bug.
 
 `link_state` is computed, never hand-set. It is derived from `last_seen`,
 `last_sync_outcome` and the bound gateway's health — all already persisted.

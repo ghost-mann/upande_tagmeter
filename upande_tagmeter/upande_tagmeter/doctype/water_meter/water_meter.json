@@ -25,9 +25,11 @@
   "site",
   "cb_location",
   "zone",
+  "gateway",
   "state_sb",
   "status",
   "online",
+  "link_state",
   "last_seen",
   "cb_state",
   "last_synced_at",
@@ -148,6 +150,13 @@
    "fieldtype": "Data"
   },
   {
+   "fieldname": "gateway",
+   "fieldtype": "Link",
+   "label": "Gateway",
+   "options": "TagMeter Gateway",
+   "description": "The gateway this meter is bound to on the SMP. Nullable -- an unbound meter can reach Silent but never Gateway Down."
+  },
+  {
    "fieldname": "state_sb",
    "label": "Link State",
    "fieldtype": "Section Break"
@@ -170,6 +179,16 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "description": "Set when the newest reading is within the staleness window (tagmeter_offline_after_hours, default 30). Meters report roughly every 12 hours, so a short threshold would produce constant false alarms."
+  },
+  {
+   "fieldname": "link_state",
+   "fieldtype": "Select",
+   "label": "Link State",
+   "options": "\nReporting\nLate\nSilent\nGateway Down\nNever Seen\nNo Data on SMP",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Computed. Why a meter is quiet, not just that it is -- online stays the plain recency flag."
   },
   {
    "fieldname": "last_seen",
@@ -402,6 +421,6 @@
    "export": 1
   }
  ],
- "search_fields": "meter_label,meter_profile,site,zone,status",
+ "search_fields": "meter_label,meter_profile,site,zone,status,link_state",
  "show_title_field_in_link": 1
 }

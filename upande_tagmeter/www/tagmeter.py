@@ -69,11 +69,53 @@ def _band(hours):
 	return "cold"
 
 
+def _gateway_rows(now):
+	"""Gateways with health resolved the same way link_state resolves it."""
+	from upande_tagmeter import gateway as gateway_module
+
+	health = gateway_module.gateway_health()
+	bound = dict(
+		frappe.db.sql(
+			"""SELECT gateway, COUNT(*) FROM `tabWater Meter`
+			   WHERE gateway IS NOT NULL AND gateway != '' GROUP BY gateway"""
+		)
+	)
+	rows = frappe.get_all(
+		"TagMeter Gateway",
+		fields=["name", "label", "site", "gateway_status", "online", "last_heartbeat",
+		        "last_polled_at", "latitude", "longitude", "altitude", "gps_time_sync"],
+		order_by="label asc",
+	)
+	return [{
+		"id": r.name,
+		"label": r.label or r.name,
+		"site": r.site,
+		"state": r.gateway_status,
+		"online": int(r.online or 0),
+		"last_heartbeat": r.last_heartbeat,
+		"hours": _hours_since(r.last_heartbeat, now),
+		# Three states. "Unknown" -- decommissioned, never polled, or polled
+		# too long ago to trust -- is not a claim that the gateway is up, and
+		# painting it the same green as a live one is misleading in exactly the
+		# situation this view exists for.
+		"health": health.get(r.name, "unknown"),
+		"healthy": health.get(r.name) == "healthy",
+		"polled": r.last_polled_at,
+		"poll_hours": _hours_since(r.last_polled_at, now),
+		"bound": int(bound.get(r.name, 0)),
+		"lat": r.latitude,
+		"lon": r.longitude,
+		"alt": r.altitude,
+		"gps": int(r.gps_time_sync or 0),
+	} for r in rows]
+
+
 def build_payload() -> dict:
 	now = now_datetime()
 	fields = [
 		"name", "meter_sn", "meter_label", "device_index", "meter_profile", "dev_eui", "connection",
 		"site", "zone", "status", "online", "last_seen", "last_synced_at", "last_sync_outcome",
+		"link_state", "gateway",
 		"cumulative_flow_m3", "remaining_balance_m3", "instant_flow_m3h", "temperature_c",
 		"rssi", "snr", "valve_reported", "valve_desired", "valve_in_flight", "status_raw",
 	] + [f for f, _ in ALARM_FIELDS]
@@ -101,6 +143,8 @@ def build_payload() -> dict:
 			"hours": hours,
 			"band": _band(hours),
 			"outcome": row.last_sync_outcome,
+			"link_state": row.link_state,
+			"gateway": row.gateway,
 			"flow": row.cumulative_flow_m3,
 			"balance": row.remaining_balance_m3,
 			"rate": row.instant_flow_m3h,
@@ -161,10 +205,17 @@ def build_payload() -> dict:
 
 	signal = Counter(rssi_band(m["rssi"]) for m in reported if m["rssi"])
 
+	gateways = _gateway_rows(now)
+	# Only a confident "unhealthy" counts as down. An unknown gateway has not
+	# been shown to be at fault and must not inflate the outage count.
+	unhealthy_ids = {g["id"] for g in gateways if g["health"] == "unhealthy"}
+	behind_down = sum(1 for m in meters if m["gateway"] in unhealthy_ids)
+
 	return {
 		"generated": now,
 		"timezone": get_system_timezone(),
 		"meters": meters,
+		"gateways": gateways,
 		"kpi": {
 			"total": len(meters),
 			"reported": len(reported),
@@ -180,6 +231,10 @@ def build_payload() -> dict:
 			"avg_rssi": round(sum(rssi_values) / len(rssi_values), 1) if rssi_values else None,
 			"avg_temp": round(sum(temps) / len(temps), 1) if temps else None,
 			"commands_open": sum(1 for c in commands if c.status == "Queued"),
+			"gateways": len(gateways),
+			"gateways_down": len(unhealthy_ids),
+			"gateways_unknown": sum(1 for g in gateways if g["health"] == "unknown"),
+			"meters_behind_down_gateway": behind_down,
 		},
 		"bands": [
 			{"key": key, "label": label, "count": bands.get(key, 0)}

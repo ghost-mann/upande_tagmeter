@@ -75,6 +75,9 @@ def run(path: str | None = None, dry_run: bool = False, site: str = DEFAULT_SITE
 				"device_index": index,
 				"dev_eui": dev_eui or None,
 				"site": site,
+				# The SMP binds each meter to exactly one gateway. Taken from the
+				# TSV rather than inferred: RSSI tells you link quality, not binding.
+				"gateway": (row.get("gateway") or "").strip().upper() or None,
 			}
 			if dry_run:
 				created += 0 if frappe.db.exists("Water Meter", meter_sn) else 1

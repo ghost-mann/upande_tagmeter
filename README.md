@@ -228,6 +228,7 @@ sync.sync_fleet()                 # poll every meter
 sync.sync_fleet(limit=3)          # poll a few
 sync.poll_meter("68753500170871") # poll one
 sync.refresh_online_flags()       # recompute online, no API calls
+sync.refresh_link_states()        # recompute link_state, no API calls
 
 from upande_tagmeter import valve
 valve.set_valve("68753500170871", "close")   # queue a command
@@ -350,6 +351,65 @@ prefixes, with zero text disagreements:
 
 `TotalCounter` is `0.0` fleet-wide and empty-pipe is universal: mounted and
 powered, no water through them yet.
+
+## Link state
+
+`online` is a plain recency flag: a reading arrived inside 30 hours. It is
+preserved exactly as it was, because tiles, filters and callers depend on it.
+
+`link_state` says *why* a meter is quiet, which is the part that decides what
+you do about it:
+
+| State | Means | Do |
+|---|---|---|
+| `Reporting` | fresher than 1.25x the cycle (30h at the default 24h) | nothing |
+| `Late` | past 1.25x but inside 3x the cycle (30–72h at the default) | nothing yet — this is jitter |
+| `Silent` | past 3x the cycle (72h), gateway healthy | send a technician |
+| `Gateway Down` | past 3x the cycle, bound gateway unhealthy | fix the backhaul, ignore the meters |
+| `Never Seen` | no reading, ever | check commissioning |
+| `No Data on SMP` | `get_latest_amr` 500s — the SMP holds no record | see the vendor question below |
+
+`Late`'s 1.25x is not arbitrary: it is the same 30h boundary the `online` flag
+already uses, so `Late` begins exactly where `online` flips to false, and one
+missed report gets no noisier than it already was. That 25% grace absorbs
+jitter in the meter's own reporting cycle before anything is escalated.
+
+A gateway is healthy only when it reports `online` **and** its heartbeat is
+newer than `gateway_stale_after_hours` (default 6). Both are required:
+`F04CD5FFFE01CF70` was observed reporting a `statTime` two days old, and the
+web console's gateway list shows the same column value for a live and a dead
+gateway. Only the API's `online` field plus heartbeat age can be trusted.
+
+Health has **three** states, not two — `healthy`, `unhealthy` and `unknown` —
+because "we have no current evidence" is a different claim from "this gateway
+is up", and only `unhealthy` ever produces a `Gateway Down` verdict. A gateway
+is `unknown` when it is decommissioned, when it has never been polled, when it
+has been polled but has not yet produced a heartbeat and less than
+`gateway_stale_after_hours` has passed since that first poll, or when **our
+own** last poll of it has gone stale.
+
+That last case matters most. `last_polled_at` only advances when a poll
+actually completes, so rotated credentials, an unreachable SMP or a wedged
+scheduler freeze it — and then every heartbeat on the site ages past the
+cutoff. Without the guard the whole fleet would read `Gateway Down` within six
+hours for an outage that is ours, not the network's, which is precisely the
+trust-the-wrong-signal failure this feature exists to eliminate.
+
+The one asymmetry: a gateway that has *never* produced a heartbeat and whose
+polling has also stopped is called `unhealthy`. There is no prior good state to
+protect there, and working gateways all carry heartbeats, so that branch cannot
+raise the fleet-wide false alarm above.
+
+Alarm flags are **never** suppressed by link state. They are the last known
+physical state of the pipe, and a backhaul outage does not make a burst pipe
+less real.
+
+Config, all in `site_config.json`:
+
+| Key | Default |
+|---|---|
+| `tagmeter_expected_cycle_hours` | 24 |
+| `gateway_stale_after_hours` | 6 |
 
 ## Known unknowns
 

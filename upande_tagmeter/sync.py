@@ -289,7 +289,12 @@ def sync_fleet(limit: int | None = None, only_profile: str | None = None) -> dic
 			failures.append(name)
 			tally["error"] = tally.get("error", 0) + 1
 
+	# Both derived flags are recomputed from the same sweep. online alone is
+	# not enough: this pass has just moved last_seen on up to 100 meters, and
+	# leaving link_state to the hourly job would show a diagnosis computed
+	# against readings up to an hour older than the detection beside it.
 	refresh_online_flags()
+	refresh_link_states()
 	return {"polled": len(names), "tally": tally, "failures": failures}
 
 
@@ -320,6 +325,99 @@ def refresh_online_flags() -> dict:
 		"cutoff": str(cutoff),
 		"marked_offline": len(to_offline),
 		"marked_online": len(to_online),
+	}
+
+
+# The fleet reports on a uniform cycle (the SMP console shows "Meter reading
+# cycle: 1" on every meter), so one configured value is enough. Late carries a
+# 25% grace for jitter, which lands on the same 30h the online flag uses -- so
+# Late begins exactly where online flips, and nothing gets noisier.
+EXPECTED_CYCLE_HOURS = 24
+LATE_MULTIPLIER = 1.25
+SILENT_MULTIPLIER = 3
+
+
+def _cycle_hours() -> float:
+	return float(frappe.conf.get("tagmeter_expected_cycle_hours") or EXPECTED_CYCLE_HOURS)
+
+
+@frappe.whitelist()
+def refresh_link_states() -> dict:
+	"""Recompute ``link_state`` for the whole fleet.
+
+	Diagnosis, not detection. ``online`` already answers "did a reading arrive
+	recently"; this answers "and why not", which is the question that decides
+	whether you send a technician or fix the backhaul.
+
+	Reads the database only -- gateway health comes from the rows
+	:func:`gateway.sync_gateways` wrote, never from the API, so this stays cheap
+	enough to run hourly.
+
+	The returned ``changed`` dict summarises only what THIS run changed -- rows
+	whose ``link_state`` differed from what was already stored -- not a census
+	of the fleet's current distribution. A steady fleet where nothing moved
+	correctly returns an empty ``changed``, even with 100 meters in view.
+	"""
+	from upande_tagmeter import gateway as gateway_module
+
+	now = now_datetime()
+	cycle = _cycle_hours()
+	late_cutoff = now - timedelta(hours=cycle * LATE_MULTIPLIER)
+	silent_cutoff = now - timedelta(hours=cycle * SILENT_MULTIPLIER)
+	down = set(gateway_module.unhealthy_gateways())
+
+	buckets: dict[str, list[str]] = {}
+	retired: list[str] = []
+	for row in frappe.get_all(
+		"Water Meter",
+		fields=["name", "status", "last_seen", "last_sync_outcome", "gateway", "link_state"],
+	):
+		if row.status == "Decommissioned":
+			# A retired meter is quiet on purpose. Left in the sweep it lands in
+			# Silent and tells an operator to send a technician to a meter that
+			# is no longer there. Clearing rather than merely skipping, because
+			# a meter decommissioned while Silent would otherwise keep that
+			# verdict on the tile forever.
+			#
+			# Compared in Python, not as a `!=` filter: SQL inequality also
+			# drops rows where status is NULL, which would silently skip a
+			# half-commissioned meter -- exactly the kind this view is for.
+			if row.link_state:
+				retired.append(row.name)
+			continue
+
+		# Order matters: a meter the SMP holds nothing for is not "silent", and
+		# neither is one that has genuinely never spoken.
+		if row.last_sync_outcome == "server_error":
+			state = "No Data on SMP"
+		elif not row.last_seen:
+			state = "Never Seen"
+		elif row.last_seen >= late_cutoff:
+			state = "Reporting"
+		elif row.last_seen >= silent_cutoff:
+			# One missed report is jitter. Gateway health is not consulted yet --
+			# promoting this to Gateway Down would raise a network alarm on noise.
+			state = "Late"
+		elif row.gateway and row.gateway in down:
+			state = "Gateway Down"
+		else:
+			state = "Silent"
+
+		if row.link_state != state:
+			buckets.setdefault(state, []).append(row.name)
+
+	for state, names in buckets.items():
+		frappe.db.set_value("Water Meter", {"name": ("in", names)}, "link_state", state,
+		                    update_modified=False)
+	if retired:
+		frappe.db.set_value("Water Meter", {"name": ("in", retired)}, "link_state", "",
+		                    update_modified=False)
+
+	return {
+		"cycle_hours": cycle,
+		"unhealthy_gateways": sorted(down),
+		"changed": {state: len(names) for state, names in buckets.items()},
+		"cleared_decommissioned": len(retired),
 	}
 
 
