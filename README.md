@@ -478,6 +478,25 @@ meters exist. Either it is set by some other endpoint, or implicitly by
 `recharge_meter`, or it is not exposed at all. This is the single most
 important thing to settle with the vendor before V2 is designed.
 
+**Update 2026-09-11: "some other endpoint" exists.** The vendor's web console
+uses a second, undocumented API at `iotcloud.tagmeter.com:8099/prod-api`, and
+its valve write takes a *numeric* flag:
+
+```
+POST /meter/updateValveStatus   {"address": "68753500170871", "valveFlag": 55}
+```
+
+`55` is a value `forceValve` rejects, so the two APIs do not share a command
+set, and the mode unreachable there may well be reachable here. The console's
+meter detail shows the vocabulary: `icCardMeter.valveStatus = "强制开阀"`
+(forced open valve) beside `chargeStatus = "远程充值"` (remote recharge).
+
+The numeric values are **deliberately not mapped** — doing so means sending
+real downlinks to live valves. See
+`docs/superpowers/specs/2026-09-11-console-api-valve-control-notes.md` for the
+safe procedure, the shared-account risk to settle first, and the questions for
+the vendor.
+
 `Reset` deserves care: it is accepted, undocumented, and nothing in the vendor's
 Postman collection mentions it. Do not send it to a live meter until they say
 what it does.
