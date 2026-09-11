@@ -40,5 +40,8 @@ scheduler_events = {
 		# A meter that goes quiet produces no reading, so nothing would ever
 		# clear its online flag. This pass is pure SQL and costs no API calls.
 		"upande_tagmeter.sync.refresh_online_flags",
+		# Diagnosis on top of detection. Must run after sync_gateways above, or
+		# a Gateway Down verdict is computed against gateway rows an hour stale.
+		"upande_tagmeter.sync.refresh_link_states",
 	],
 }

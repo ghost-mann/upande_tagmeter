@@ -262,3 +262,80 @@ class TestSync(IntegrationTestCase):
 		frappe.db.set_value("Water Meter", sn, "vendor_registered", 1, update_modified=False)
 		sync.sync_meter(sn, client=FakeClient((Outcome.SERVER_ERROR, None)))
 		self.assertTrue(frappe.db.get_value("Water Meter", sn, "vendor_registered"))
+
+	# ── link state ───────────────────────────────────────────────────────────
+
+	def _gateway(self, gid, healthy=True):
+		if not frappe.db.exists("TagMeter Gateway", gid):
+			frappe.get_doc({
+				"doctype": "TagMeter Gateway", "gateway_id": gid, "label": gid,
+			}).insert()
+		frappe.db.set_value("TagMeter Gateway", gid, {
+			"online": 1 if healthy else 0,
+			"last_heartbeat": now_datetime() - timedelta(minutes=5),
+			"last_polled_at": now_datetime(),
+		}, update_modified=False)
+		return gid
+
+	def _staged(self, sn, hours_ago, gateway=None, outcome="ok"):
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, {
+			"last_seen": None if hours_ago is None else now_datetime() - timedelta(hours=hours_ago),
+			"last_sync_outcome": outcome,
+			"gateway": gateway,
+		}, update_modified=False)
+		return sn
+
+	def test_link_state_table(self):
+		up = self._gateway("TESTGWUP00000001", healthy=True)
+		down = self._gateway("TESTGWDOWN000001", healthy=False)
+		cases = [
+			("68753500170910", 1, up, "ok", "Reporting"),
+			("68753500170911", 40, up, "ok", "Late"),
+			("68753500170912", 100, up, "ok", "Silent"),
+			("68753500170913", 100, down, "ok", "Gateway Down"),
+			("68753500170914", None, up, "ok", "Never Seen"),
+			("68753500170915", None, up, "server_error", "No Data on SMP"),
+			("68753500170916", 100, None, "ok", "Silent"),
+		]
+		for sn, hours, gw, outcome, _expected in cases:
+			self._staged(sn, hours, gateway=gw, outcome=outcome)
+
+		sync.refresh_link_states()
+
+		for sn, _h, _g, _o, expected in cases:
+			self.assertEqual(
+				frappe.db.get_value("Water Meter", sn, "link_state"), expected,
+				f"{sn} should be {expected}",
+			)
+
+	def test_a_late_meter_is_late_even_behind_a_dead_gateway(self):
+		"""One missed report is jitter, not evidence. Promoting it would alarm on noise."""
+		down = self._gateway("TESTGWDOWN000002", healthy=False)
+		sn = self._staged("68753500170917", 40, gateway=down)
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "Late")
+
+	def test_no_data_on_smp_wins_over_never_seen(self):
+		"""server_error means the SMP holds no AMR record -- a different problem."""
+		sn = self._staged("68753500170918", None, outcome="server_error")
+		sync.refresh_link_states()
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "link_state"), "No Data on SMP")
+
+	def test_refresh_link_states_does_not_move_the_online_flag(self):
+		"""Regression guard: online keeps its exact current rule and values."""
+		up = self._gateway("TESTGWUP00000002", healthy=True)
+		down = self._gateway("TESTGWDOWN000003", healthy=False)
+		fixture = [
+			("68753500170920", 1, up), ("68753500170921", 40, down),
+			("68753500170922", 100, down), ("68753500170923", None, up),
+		]
+		for sn, hours, gw in fixture:
+			self._staged(sn, hours, gw)
+		sync.refresh_online_flags()
+		before = {sn: frappe.db.get_value("Water Meter", sn, "online") for sn, _h, _g in fixture}
+
+		sync.refresh_link_states()
+
+		after = {sn: frappe.db.get_value("Water Meter", sn, "online") for sn, _h, _g in fixture}
+		self.assertEqual(before, after)

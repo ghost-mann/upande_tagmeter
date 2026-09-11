@@ -323,6 +323,75 @@ def refresh_online_flags() -> dict:
 	}
 
 
+# The fleet reports on a uniform cycle (the SMP console shows "Meter reading
+# cycle: 1" on every meter), so one configured value is enough. Late carries a
+# 25% grace for jitter, which lands on the same 30h the online flag uses -- so
+# Late begins exactly where online flips, and nothing gets noisier.
+EXPECTED_CYCLE_HOURS = 24
+LATE_MULTIPLIER = 1.25
+SILENT_MULTIPLIER = 3
+
+
+def _cycle_hours() -> float:
+	return float(frappe.conf.get("tagmeter_expected_cycle_hours") or EXPECTED_CYCLE_HOURS)
+
+
+@frappe.whitelist()
+def refresh_link_states() -> dict:
+	"""Recompute ``link_state`` for the whole fleet.
+
+	Diagnosis, not detection. ``online`` already answers "did a reading arrive
+	recently"; this answers "and why not", which is the question that decides
+	whether you send a technician or fix the backhaul.
+
+	Reads the database only -- gateway health comes from the rows
+	:func:`gateway.sync_gateways` wrote, never from the API, so this stays cheap
+	enough to run hourly.
+	"""
+	from upande_tagmeter import gateway as gateway_module
+
+	now = now_datetime()
+	cycle = _cycle_hours()
+	late_cutoff = now - timedelta(hours=cycle * LATE_MULTIPLIER)
+	silent_cutoff = now - timedelta(hours=cycle * SILENT_MULTIPLIER)
+	down = set(gateway_module.unhealthy_gateways())
+
+	buckets: dict[str, list[str]] = {}
+	for row in frappe.get_all(
+		"Water Meter",
+		fields=["name", "last_seen", "last_sync_outcome", "gateway", "link_state"],
+	):
+		# Order matters: a meter the SMP holds nothing for is not "silent", and
+		# neither is one that has genuinely never spoken.
+		if row.last_sync_outcome == "server_error":
+			state = "No Data on SMP"
+		elif not row.last_seen:
+			state = "Never Seen"
+		elif row.last_seen >= late_cutoff:
+			state = "Reporting"
+		elif row.last_seen >= silent_cutoff:
+			# One missed report is jitter. Gateway health is not consulted yet --
+			# promoting this to Gateway Down would raise a network alarm on noise.
+			state = "Late"
+		elif row.gateway and row.gateway in down:
+			state = "Gateway Down"
+		else:
+			state = "Silent"
+
+		if row.link_state != state:
+			buckets.setdefault(state, []).append(row.name)
+
+	for state, names in buckets.items():
+		frappe.db.set_value("Water Meter", {"name": ("in", names)}, "link_state", state,
+		                    update_modified=False)
+
+	return {
+		"cycle_hours": cycle,
+		"unhealthy_gateways": sorted(down),
+		"counts": {state: len(names) for state, names in buckets.items()},
+	}
+
+
 @frappe.whitelist()
 def test_connection() -> dict:
 	"""Prove credentials and reachability without touching a meter."""
