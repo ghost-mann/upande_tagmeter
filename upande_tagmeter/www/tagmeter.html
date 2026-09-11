@@ -183,6 +183,14 @@ a{color:inherit}
 .valvebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px;
   padding-top:18px;border-top:1px solid var(--hairline)}
 .valvebar .note{font-size:12.5px;color:var(--ink-4);max-width:52ch}
+/* The locked-row cell in the Valve Board: stacked and compact, because a table
+   cell has no room for the valvebar's horizontal layout. */
+.valvewait{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:230px}
+/* .tbl td is white-space:nowrap, so the note has to opt back in or it stretches
+   the column and pushes the Action buttons off the right edge -- measured: the
+   table grew 1060 -> 1203px against a 1060px container. */
+.valvewait .note{font-size:11.5px;color:var(--ink-4);line-height:1.35;white-space:normal}
+.valvewait .btn{padding:5px 11px;font-size:12px}
 
 /* ---- Identity switch ---- */
 .pillgroup{display:inline-flex;background:rgba(10,10,10,0.05);border-radius:999px;padding:3px;gap:2px}
@@ -783,9 +791,25 @@ table("valve-table", [
       ? '<span class="pill ok">on the SMP</span>'
       : '<span class="pill bad">not reachable</span>'}<div>${stateCell(m)}</div>` },
   { h: "Action", f: m => {
-      const blocked = m.in_flight || !CAN_COMMAND;
-      return `<button class="btn btn--open" data-vsn="${esc(m.sn)}" data-vact="open" ${blocked ? "disabled" : ""}>Open</button>
-              <button class="btn btn--close" data-vsn="${esc(m.sn)}" data-vact="close" ${blocked ? "disabled" : ""}>Close</button>`;
+      if (!CAN_COMMAND) return '<span style="color:var(--ink-faint)">no permission</span>';
+      if (m.in_flight) {
+        // A grey button reads as "broken". Say what is actually being waited
+        // on: the meter's next uplink, which on this fleet is 9-21 hours away.
+        return `<div class="valvewait">
+            <span class="pill warn">waiting on meter</span>
+            <span class="note">last reported ${esc(ago(m.hours))} · confirms on its next uplink
+              · <a href="/app/meter-command/${encodeURIComponent(m.in_flight)}">${esc(m.in_flight)}</a></span>
+            <button class="btn btn--quiet" data-vrel="${esc(m.sn)}">Release lock</button>
+          </div>`;
+      }
+      // Asking for the state already reported is a no-op that would lock the
+      // meter for a day and change nothing. The server refuses it too.
+      const isOpen = m.valve === "Open", isClosed = m.valve === "Closed";
+      const why = s => ` title="Already reports ${s}. Issuing this would lock the meter until a reading confirms a change that cannot happen."`;
+      return `<button class="btn btn--open" data-vsn="${esc(m.sn)}" data-vact="open"
+                ${isOpen ? "disabled" + why("Open") : ""}>Open</button>
+              <button class="btn btn--close" data-vsn="${esc(m.sn)}" data-vact="close"
+                ${isClosed ? "disabled" + why("Closed") : ""}>Close</button>`;
     } },
 ], valved);
 
@@ -823,6 +847,32 @@ $("valve-table").addEventListener("click", async e => {
   } catch (err) {
     alert("Could not queue the command:\n\n" + err.message);
     wasEnabled.forEach(x => x.disabled = false);
+  }
+});
+
+$("valve-table").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-vrel]");
+  if (!b || b.disabled) return;
+  const m = TM.meters.find(x => x.sn === b.dataset.vrel);
+  if (!m) return;
+  const who = nameOf(m) === m.sn ? m.sn : `${nameOf(m)} (${m.sn})`;
+  // The lock exists so two downlinks cannot race. Lifting it reintroduces
+  // exactly that risk, so the dialog has to say so rather than just confirm.
+  if (!confirm(
+    `Release the lock on ${who}?\n\n` +
+    `${m.in_flight} is cancelled and the meter becomes controllable again.\n\n` +
+    `This does NOT recall the downlink. The SMP already accepted it, so the valve ` +
+    `may still act on it — and a new command could then race with it. Release only ` +
+    `if you are willing to accept that.`)) return;
+  const reason = prompt("Why are you releasing it? (recorded against the cancelled command)", "") || "";
+  b.disabled = true;
+  try {
+    const r = await call("upande_tagmeter.valve.release", { water_meter: m.sn, reason });
+    alert(`Released ${r.released}. ${who} is controllable again.`);
+    location.reload();
+  } catch (err) {
+    alert("Could not release the lock:\n\n" + err.message);
+    b.disabled = false;
   }
 });
 function refreshNames() { renderTables(); fillPickers(); fleetTitles();
