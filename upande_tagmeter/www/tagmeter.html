@@ -675,10 +675,15 @@ if (gwDown.length) {
   b.hidden = false;
   b.className = "empty";
   b.style.borderColor = "var(--bad, #dc2626)";
+  const behind = k.meters_behind_down_gateway;
+  const meterClause = behind > 0
+    ? `. <b>${behind}</b> meter${behind === 1 ? " is" : "s are"} bound to ${gwDown.length > 1 ? "them" : "it"} — ` +
+      `their silence is the network's, not theirs.`
+    : `. No meters are bound to ${gwDown.length > 1 ? "them" : "it"} — this outage has no effect on the fleet's readings yet.`;
   b.innerHTML = `<b>${gwDown.length} gateway${gwDown.length > 1 ? "s" : ""} unhealthy:</b> ` +
     gwDown.map(g => `${esc(g.label)} (${esc(g.id)}, last heartbeat ${esc(ago(g.hours))})`).join(", ") +
-    `. <b>${k.meters_behind_down_gateway}</b> meter(s) are bound to ${gwDown.length > 1 ? "them" : "it"} — ` +
-    `their silence is the network's, not theirs. Alarm flags below are still the last known state of the pipe and remain valid.`;
+    meterClause +
+    ` Alarm flags below are still the last known state of the pipe and remain valid.`;
 }
 
 $("gw-meta").textContent = `${TM.gateways.length} gateways · ${gwDown.length} unhealthy`;

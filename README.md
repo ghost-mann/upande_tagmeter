@@ -351,6 +351,40 @@ prefixes, with zero text disagreements:
 `TotalCounter` is `0.0` fleet-wide and empty-pipe is universal: mounted and
 powered, no water through them yet.
 
+## Link state
+
+`online` is a plain recency flag: a reading arrived inside 30 hours. It is
+preserved exactly as it was, because tiles, filters and callers depend on it.
+
+`link_state` says *why* a meter is quiet, which is the part that decides what
+you do about it:
+
+| State | Means | Do |
+|---|---|---|
+| `Reporting` | fresh inside one cycle | nothing |
+| `Late` | missed one expected report | nothing yet — this is jitter |
+| `Silent` | missed three, gateway healthy | send a technician |
+| `Gateway Down` | missed three, bound gateway unhealthy | fix the backhaul, ignore the meters |
+| `Never Seen` | no reading, ever | check commissioning |
+| `No Data on SMP` | `get_latest_amr` 500s — the SMP holds no record | see the vendor question below |
+
+A gateway is healthy only when it reports `online` **and** its heartbeat is
+newer than `gateway_stale_after_hours` (default 6). Both are required:
+`F04CD5FFFE01CF70` was observed reporting a `statTime` two days old, and the
+web console's gateway list shows the same column value for a live and a dead
+gateway. Only the API's `online` field plus heartbeat age can be trusted.
+
+Alarm flags are **never** suppressed by link state. They are the last known
+physical state of the pipe, and a backhaul outage does not make a burst pipe
+less real.
+
+Config, all in `site_config.json`:
+
+| Key | Default |
+|---|---|
+| `tagmeter_expected_cycle_hours` | 24 |
+| `gateway_stale_after_hours` | 6 |
+
 ## Known unknowns
 
 - `TotalCounter`'s unit is **assumed** m³. `PrepaidBalance` is confirmed m³ (a
