@@ -279,6 +279,7 @@ body.graphing .side{display:none}
       <a class="side__link" data-view="view-meters"><svg viewBox="0 0 24 24"><path d="M12 2.7 6.6 9a7.4 7.4 0 1 0 10.8 0z"/></svg>Meters<span class="n" id="n-meters">–</span></a>
       <a class="side__link" data-view="view-register"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg>Register<span class="n" id="n-named">–</span></a>
       <a class="side__link" data-view="view-valves"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Valves<span class="n" id="n-valves">–</span></a>
+      <a class="side__link" data-view="view-network"><svg viewBox="0 0 24 24"><path d="M5 12.6a10 10 0 0 1 14 0"/><path d="M8.5 16a5.5 5.5 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/><path d="M1.5 9a15 15 0 0 1 21 0"/></svg>Network<span class="n" id="n-network">–</span></a>
       <a class="side__link" data-view="view-flow"><svg viewBox="0 0 24 24"><path d="M3 17c2.5 0 2.5-4 5-4s2.5 4 5 4 2.5-4 5-4 2.5 4 3 4"/><path d="M3 10c2.5 0 2.5-4 5-4s2.5 4 5 4 2.5-4 5-4 2.5 4 3 4"/></svg>Flow</a>
       <a class="side__link" data-view="view-graph"><svg viewBox="0 0 24 24"><polyline points="3 17 9 11 13 15 21 6"/><path d="M3 21h18"/><path d="M3 3v18"/></svg>Graph</a>
       <a class="side__link" data-view="view-signal"><svg viewBox="0 0 24 24"><path d="M5 12.6a10 10 0 0 1 14 0"/><path d="M8.5 16a5.5 5.5 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/><path d="M1.5 9a15 15 0 0 1 21 0"/></svg>Signal</a>
@@ -316,6 +317,7 @@ body.graphing .side{display:none}
       <div class="pagehead__eyebrow">Kiwasco · TagMeter · tagmeter.com SMP</div>
       <h1 class="pagehead__title">Fleet</h1>
       <p class="pagehead__sub" id="head-sub">100 ultrasonic meters · 10 with valves · read from the vendor platform</p>
+      <div id="gw-banner" hidden></div>
     </div>
     <div class="pagehead__tools">
       <div class="datepill" id="stamp">–</div>
@@ -415,6 +417,17 @@ body.graphing .side{display:none}
   <div class="card card--padded">
     <div class="card__head"><h3>Commands</h3><div class="meta">queued means accepted by the SMP, not that the valve moved</div></div>
     <div id="commands"></div>
+  </div>
+</section>
+
+<section class="view" id="view-network" hidden>
+  <div class="pagehead">
+    <h2>Network</h2>
+    <p class="pagehead__sub">A gateway counts as healthy only when it says online <em>and</em> its heartbeat is fresh. The vendor's flag alone has been wrong.</p>
+  </div>
+  <div class="card">
+    <div class="card__head"><h3>Gateways</h3><div class="meta" id="gw-meta"></div></div>
+    <div class="scroll"><table class="tbl" id="gw-table"></table></div>
   </div>
 </section>
 
@@ -651,6 +664,44 @@ $("alarms").innerHTML = TM.alarm_counts.length
       </div>`).join("")
   : `<div class="empty">No meter is carrying a status flag.</div>`;
 
+// ---- gateways ----
+$("n-network").textContent = TM.gateways.length;
+
+const gwDown = TM.gateways.filter(g => !g.healthy);
+if (gwDown.length) {
+  const b = $("gw-banner");
+  b.hidden = false;
+  b.className = "empty";
+  b.style.borderColor = "var(--bad, #dc2626)";
+  b.innerHTML = `<b>${gwDown.length} gateway${gwDown.length > 1 ? "s" : ""} unhealthy:</b> ` +
+    gwDown.map(g => `${esc(g.label)} (${esc(g.id)}, last heartbeat ${esc(ago(g.hours))})`).join(", ") +
+    `. <b>${k.meters_behind_down_gateway}</b> meter(s) are bound to ${gwDown.length > 1 ? "them" : "it"} — ` +
+    `their silence is the network's, not theirs. Alarm flags below are still the last known state of the pipe and remain valid.`;
+}
+
+$("gw-meta").textContent = `${TM.gateways.length} gateways · ${gwDown.length} unhealthy`;
+table("gw-table", [
+  { h: "Gateway", f: g => `<b>${esc(g.label)}</b><div style="color:var(--ink-faint)">${esc(g.id)}</div>` },
+  { h: "Health", f: g => g.healthy
+      ? '<span class="pill ok">healthy</span>'
+      : '<span class="pill bad">unhealthy</span>' },
+  { h: "Vendor flag", f: g => g.online ? "online" : '<span class="pill warn">offline</span>' },
+  { h: "Last heartbeat", f: g => esc(ago(g.hours)) },
+  { h: "Bound meters", num: true, f: g => g.bound },
+  { h: "Position", f: g => g.gps && (g.lat || g.lon)
+      ? `${num(g.lat, 4)}, ${num(g.lon, 4)} · ${num(g.alt, 0)} m`
+      : '<span style="color:var(--ink-faint)">no fix</span>' },
+  { h: "State", f: g => esc(g.state || "Active") },
+], TM.gateways);
+
+const STATE_PILL = {
+  "Reporting": "ok", "Late": "warn", "Silent": "bad",
+  "Gateway Down": "bad", "Never Seen": "", "No Data on SMP": "warn",
+};
+const stateCell = m => m.link_state
+  ? `<span class="pill ${STATE_PILL[m.link_state] || ""}">${esc(m.link_state)}</span>`
+  : '<span style="color:var(--ink-faint)">—</span>';
+
 // ---- meters table ----
 function table(el, cols, rows) {
   $(el).innerHTML =
@@ -693,6 +744,7 @@ table("meter-table", [
   { h: "°C", num: true, f: m => m.temp == null ? "—" : num(m.temp, 1) },
   { h: "RSSI", num: true, f: m => m.rssi == null ? "—" : m.rssi },
   { h: "Bytes", f: m => m.raw ? `<span style="font-family:var(--mono)">${esc(m.raw)}</span>` : "—" },
+  { h: "Link state", f: stateCell },
   { h: "Alarms", f: m => m.alarms.length ? esc(m.alarms.join(", ")) : '<span style="color:var(--ink-faint)">none</span>' },
 ], TM.meters);
 
@@ -704,9 +756,14 @@ table("valve-table", [
   { h: "In flight", f: m => m.in_flight ? `<a href="/app/meter-command/${encodeURIComponent(m.in_flight)}">${esc(m.in_flight)}</a>` : '<span style="color:var(--ink-faint)">—</span>' },
   { h: "Balance m³", num: true, f: m => num(m.balance) },
   { h: "Last reported", f: m => esc(ago(m.hours)) },
-  { h: "Reachable", f: m => m.online
+  { h: "Reachable", f: m => `${m.online
       ? '<span class="pill ok">on the SMP</span>'
-      : '<span class="pill bad">not reachable</span>' },
+      : '<span class="pill bad">not reachable</span>'}<div>${stateCell(m)}</div>` },
+  { h: "Action", f: m => {
+      const blocked = m.in_flight || !CAN_COMMAND;
+      return `<button class="btn btn--open" data-vsn="${esc(m.sn)}" data-vact="open" ${blocked ? "disabled" : ""}>Open</button>
+              <button class="btn btn--close" data-vsn="${esc(m.sn)}" data-vact="close" ${blocked ? "disabled" : ""}>Close</button>`;
+    } },
 ], valved);
 
 table("weak-table", [
@@ -717,6 +774,30 @@ table("weak-table", [
 ], TM.meters.filter(m => m.rssi != null).sort((a, b) => a.rssi - b.rssi).slice(0, 12));
 }
 renderTables();
+// One delegated listener rather than per-row bindings: renderTables() re-renders the
+// rows (and can run again on a name-mode change) but never replaces the <table> element
+// itself, so binding once here — outside renderTables() — covers every future render
+// without stacking duplicate listeners. set_valve is the only way a valve ever moves.
+$("valve-table").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-vact]");
+  if (!b || b.disabled) return;
+  const m = TM.meters.find(x => x.sn === b.dataset.vsn);
+  if (!m) return;
+  const act = b.dataset.vact;
+  const who = nameOf(m) === m.sn ? m.sn : `${nameOf(m)} (${m.sn})`;
+  if (!confirm(`Ask meter ${who} to ${act} its valve?\n\nThe SMP accepts this immediately, but that only means it was queued — not that the valve moved.`)) return;
+  $("valve-table").querySelectorAll("button[data-vact]").forEach(x => x.disabled = true);
+  try {
+    const r = await call("upande_tagmeter.valve.set_valve", { water_meter: m.sn, action: act });
+    alert(r.status === "Rejected"
+      ? `The SMP refused it: ${r.message}`
+      : `Command ${r.command} queued. It stays queued until a reading shows the valve in that state.`);
+    location.reload();
+  } catch (err) {
+    alert("Could not queue the command:\n\n" + err.message);
+    $("valve-table").querySelectorAll("button[data-vact]").forEach(x => x.disabled = false);
+  }
+});
 function refreshNames() { renderTables(); fillPickers(); fleetTitles();
   const cur = document.querySelector('#fleet button[aria-pressed="true"]');
   if (cur) showMeter(cur.dataset.sn); }
@@ -730,7 +811,7 @@ $("commands").innerHTML = TM.commands.length
         <div style="text-align:right"><span class="pill ${
           c.status === "Confirmed" ? "ok" : c.status === "Queued" ? "warn" : "bad"}">${esc(c.status)}</span></div>
       </div>`).join("")
-  : `<div class="empty">No valve command has been issued yet. Open a Quinto meter in the desk and use the valve toggle.</div>`;
+  : `<div class="empty">No valve command has been issued yet. Use the Open or Close button on any meter in the Valves view above.</div>`;
 
 // ---- signal ----
 const maxSig = Math.max(1, ...TM.signal.map(s => s.count));
