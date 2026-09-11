@@ -347,6 +347,11 @@ def refresh_link_states() -> dict:
 	Reads the database only -- gateway health comes from the rows
 	:func:`gateway.sync_gateways` wrote, never from the API, so this stays cheap
 	enough to run hourly.
+
+	The returned ``changed`` dict summarises only what THIS run changed -- rows
+	whose ``link_state`` differed from what was already stored -- not a census
+	of the fleet's current distribution. A steady fleet where nothing moved
+	correctly returns an empty ``changed``, even with 100 meters in view.
 	"""
 	from upande_tagmeter import gateway as gateway_module
 
@@ -388,7 +393,7 @@ def refresh_link_states() -> dict:
 	return {
 		"cycle_hours": cycle,
 		"unhealthy_gateways": sorted(down),
-		"counts": {state: len(names) for state, names in buckets.items()},
+		"changed": {state: len(names) for state, names in buckets.items()},
 	}
 
 

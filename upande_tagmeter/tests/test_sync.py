@@ -297,6 +297,10 @@ class TestSync(IntegrationTestCase):
 			("68753500170914", None, up, "ok", "Never Seen"),
 			("68753500170915", None, up, "server_error", "No Data on SMP"),
 			("68753500170916", 100, None, "ok", "Silent"),
+			# Fresh last_seen pins this branch against Reporting, not just Never Seen --
+			# the case that matters in production is a meter the vendor 500s on while
+			# it is otherwise reporting normally.
+			("68753500170919", 1, up, "server_error", "No Data on SMP"),
 		]
 		for sn, hours, gw, outcome, _expected in cases:
 			self._staged(sn, hours, gateway=gw, outcome=outcome)
