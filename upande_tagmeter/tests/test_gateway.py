@@ -53,7 +53,9 @@ class TestGatewaySync(IntegrationTestCase):
 		# the table here. sync_gateways() polls the whole doctype, and the fake
 		# client answers positionally, so leftover rows would both inflate
 		# client.asked and steal the queued response meant for this test's gid.
-		frappe.db.delete("TagMeter Gateway")
+		# Scoped to our own TESTGW... ids -- never an unscoped wipe of a table
+		# that also holds real gateways on this site.
+		frappe.db.delete("TagMeter Gateway", {"name": ("like", "TESTGW%")})
 
 	def _gw(self, gid, **values):
 		if frappe.db.exists("TagMeter Gateway", gid):
