@@ -50,11 +50,16 @@ class TestGatewaySync(IntegrationTestCase):
 		super().setUp()
 		# IntegrationTestCase only rolls back at class teardown, not per test, so
 		# a gateway left behind by an earlier method in this class is still in
-		# the table here. sync_gateways() polls the whole doctype, and the fake
-		# client answers positionally, so leftover rows would both inflate
-		# client.asked and steal the queued response meant for this test's gid.
-		# Scoped to our own TESTGW... ids -- never an unscoped wipe of a table
-		# that also holds real gateways on this site.
+		# the table here, and the doctype also holds the two real seeded
+		# gateways on this site.
+		#
+		# Two separate guards, both needed. This delete is scoped to our own
+		# TESTGW... ids -- never an unscoped wipe of a table that also holds
+		# live rows. And every sync_gateways() call below passes ``names``, so
+		# the sweep is confined to the gid under test: the fake client answers
+		# positionally, so an unscoped sweep would hand the queued response to
+		# whichever id sorts first (``0C4EC0...``, a real gateway) and would
+		# write poll state onto live rows on the way past.
 		frappe.db.delete("TagMeter Gateway", {"name": ("like", "TESTGW%")})
 
 	def _gw(self, gid, **values):
@@ -77,7 +82,7 @@ class TestGatewaySync(IntegrationTestCase):
 		# test_stat_time_is_stored_converted_from_utc_to_system_local below.
 		fresh = datetime.now(timezone.utc).replace(microsecond=0)
 		client = FakeGatewayClient((Outcome.OK, _status(gid, online=True, stat_time=fresh)))
-		result = gateway.sync_gateways(client=client)
+		result = gateway.sync_gateways(client=client, names=[gid])
 
 		self.assertEqual(client.asked, [gid])
 		row = frappe.db.get_value(
@@ -95,7 +100,7 @@ class TestGatewaySync(IntegrationTestCase):
 		fresh = now_datetime() - timedelta(minutes=5)
 		self._gw(gid, online=1, last_heartbeat=fresh, last_polled_at=fresh)
 		client = FakeGatewayClient((Outcome.SERVER_ERROR, None))
-		gateway.sync_gateways(client=client)
+		gateway.sync_gateways(client=client, names=[gid])
 
 		row = frappe.db.get_value(
 			"TagMeter Gateway", gid, ["online", "last_poll_outcome"], as_dict=True
@@ -116,6 +121,89 @@ class TestGatewaySync(IntegrationTestCase):
 		self._gw(gid)
 		self.assertNotIn(gid, gateway.unhealthy_gateways())
 
+	def test_a_scoped_sweep_never_touches_a_real_gateway_row(self):
+		"""``names`` is the guard, not class-teardown rollback.
+
+		These tests run against a live site holding two real gateways. Without
+		``names`` the sweep writes ``last_polled_at`` and ``last_poll_outcome``
+		onto those rows and relies on rollback to undo it; with it, they are
+		never read or written at all.
+		"""
+		gid = "TESTGW0000000016"
+		self._gw(gid)
+		before = {
+			r.name: (r.last_polled_at, r.last_poll_outcome)
+			for r in frappe.get_all(
+				"TagMeter Gateway",
+				filters={"name": ("not like", "TESTGW%")},
+				fields=["name", "last_polled_at", "last_poll_outcome"],
+			)
+		}
+		self.assertTrue(before, "expected the real seeded gateways to be present")
+
+		client = FakeGatewayClient((Outcome.OK, _status(gid, online=True, stat_time=None)))
+		gateway.sync_gateways(client=client, names=[gid])
+
+		self.assertEqual(client.asked, [gid])
+		after = {
+			r.name: (r.last_polled_at, r.last_poll_outcome)
+			for r in frappe.get_all(
+				"TagMeter Gateway",
+				filters={"name": ("not like", "TESTGW%")},
+				fields=["name", "last_polled_at", "last_poll_outcome"],
+			)
+		}
+		self.assertEqual(before, after, "a scoped sweep must not write to a real gateway row")
+
+	def test_a_gateway_whose_first_poll_just_failed_is_not_called_down(self):
+		"""``last_polled_at`` is written on the failure path too.
+
+		So the "never polled" guard alone does not protect a freshly seeded
+		gateway whose very first poll errored: it has a fresh ``last_polled_at``
+		and still no ``last_heartbeat``. One failed poll is not an outage.
+		"""
+		gid = "TESTGW0000000017"
+		self._gw(gid)
+		client = FakeGatewayClient((Outcome.SERVER_ERROR, None))
+		result = gateway.sync_gateways(client=client, names=[gid])
+
+		self.assertNotIn(gid, gateway.unhealthy_gateways())
+		self.assertIn(gid, result["unknown"])
+
+	def test_a_gateway_with_no_heartbeat_and_a_stale_poll_is_down(self):
+		"""The grace above is one staleness window, not forever."""
+		gid = "TESTGW0000000018"
+		self._gw(gid, last_polled_at=now_datetime() - timedelta(hours=48),
+		         last_poll_outcome="server_error")
+		self.assertIn(gid, gateway.unhealthy_gateways())
+
+	def test_our_own_polling_outage_does_not_condemn_the_whole_fleet(self):
+		"""Rotated credentials must not read as every gateway going down.
+
+		If polling stops, every heartbeat on the site ages past the cutoff. A
+		rule that looked only at heartbeat age would call the entire fleet down
+		for a fault that is ours, which is the exact mistake this feature
+		exists to stop.
+		"""
+		gid = "TESTGW0000000019"
+		stopped = now_datetime() - timedelta(hours=48)
+		self._gw(gid, online=1, last_heartbeat=stopped, last_polled_at=stopped)
+		self.assertNotIn(gid, gateway.unhealthy_gateways())
+		self.assertEqual(gateway.gateway_health()[gid], "unknown")
+
+	def test_health_is_three_states_not_two(self):
+		"""Never polled and decommissioned are unknown, never healthy."""
+		never = self._gw("TESTGW0000000020").name
+		dead = self._gw("TESTGW0000000021", gateway_status="Decommissioned", online=1,
+		                last_heartbeat=now_datetime(), last_polled_at=now_datetime()).name
+		live = self._gw("TESTGW0000000022", online=1,
+		                last_heartbeat=now_datetime() - timedelta(minutes=5),
+		                last_polled_at=now_datetime()).name
+		health = gateway.gateway_health()
+		self.assertEqual(health[never], "unknown")
+		self.assertEqual(health[dead], "unknown")
+		self.assertEqual(health[live], "healthy")
+
 	def test_a_healthy_gateway_is_absent_from_the_unhealthy_list(self):
 		gid = "TESTGW0000000014"
 		self._gw(gid, online=1, last_heartbeat=now_datetime() - timedelta(minutes=10),
@@ -133,7 +221,7 @@ class TestGatewaySync(IntegrationTestCase):
 		self._gw(gid)
 		stat_time = datetime(2026, 9, 10, 6, 30, 0, tzinfo=timezone.utc)
 		client = FakeGatewayClient((Outcome.OK, _status(gid, online=True, stat_time=stat_time)))
-		gateway.sync_gateways(client=client)
+		gateway.sync_gateways(client=client, names=[gid])
 
 		last_heartbeat = frappe.db.get_value("TagMeter Gateway", gid, "last_heartbeat")
 		self.assertEqual(last_heartbeat, datetime(2026, 9, 10, 9, 30, 0))
