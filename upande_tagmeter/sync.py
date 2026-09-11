@@ -77,6 +77,46 @@ def get_client() -> TagMeterClient:
 	)
 
 
+CONSOLE_TOKEN_CACHE_KEY = "upande_tagmeter:console_token"
+
+
+class FrappeConsoleTokenStore:
+	"""Console token, shared across workers through the Frappe cache.
+
+	Simpler than :class:`FrappeTokenStore`: the console API issues per-login
+	tokens that do not appear to revoke each other, so no single-flight lock is
+	needed. If that turns out to be wrong -- if the app and a human logging into
+	the console start evicting one another -- this is where the lock goes, and
+	the fix is really a dedicated service account.
+	"""
+
+	def get(self):
+		return frappe.cache().get_value(CONSOLE_TOKEN_CACHE_KEY)
+
+	def set(self, token):
+		frappe.cache().set_value(CONSOLE_TOKEN_CACHE_KEY, token)
+
+
+def get_console_client():
+	"""Client for the vendor's internal console API.
+
+	Undocumented and plain HTTP, so it is an enrichment source only -- never
+	the sole path for anything that must keep working. See
+	``vendor/console_api.py`` for what it buys us and what it costs.
+	"""
+	from upande_tagmeter.vendor.console_api import DEFAULT_BASE_URL, ConsoleClient
+
+	url = frappe.conf.get("tagmeter_console_url") or DEFAULT_BASE_URL
+	user = frappe.conf.get("tagmeter_api_user")
+	password = frappe.conf.get("tagmeter_api_password")
+	if not (user and password):
+		raise ConfigError(
+			"The console API reuses tagmeter_api_user and tagmeter_api_password "
+			"from site_config.json."
+		)
+	return ConsoleClient(url, user, password, token_store=FrappeConsoleTokenStore())
+
+
 def _to_system_naive(aware_utc):
 	"""Aware UTC -> naive datetime in the site's timezone, ready to store.
 
