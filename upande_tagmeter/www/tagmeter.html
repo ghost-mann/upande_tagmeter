@@ -422,10 +422,12 @@ body.graphing .side{display:none}
 
 <section class="view" id="view-network" hidden>
   <div class="pagehead">
-    <h2>Network</h2>
-    <p class="pagehead__sub">A gateway counts as healthy only when it says online <em>and</em> its heartbeat is fresh. The vendor's flag alone has been wrong.</p>
+    <div>
+      <h1 class="pagehead__title">Network</h1>
+      <p class="pagehead__sub">A gateway counts as healthy only when it says online <em>and</em> its heartbeat is fresh. The vendor's flag alone has been wrong.</p>
+    </div>
   </div>
-  <div class="card">
+  <div class="card card--padded">
     <div class="card__head"><h3>Gateways</h3><div class="meta" id="gw-meta"></div></div>
     <div class="scroll"><table class="tbl" id="gw-table"></table></div>
   </div>
@@ -786,7 +788,11 @@ $("valve-table").addEventListener("click", async e => {
   const act = b.dataset.vact;
   const who = nameOf(m) === m.sn ? m.sn : `${nameOf(m)} (${m.sn})`;
   if (!confirm(`Ask meter ${who} to ${act} its valve?\n\nThe SMP accepts this immediately, but that only means it was queued — not that the valve moved.`)) return;
-  $("valve-table").querySelectorAll("button[data-vact]").forEach(x => x.disabled = true);
+  // Only re-enable, on failure, the buttons that were actually enabled before this
+  // click — a row disabled because its meter already has a command in flight must
+  // stay disabled, not be handed back to the operator by an unrelated error.
+  const wasEnabled = [...$("valve-table").querySelectorAll("button[data-vact]")].filter(x => !x.disabled);
+  wasEnabled.forEach(x => x.disabled = true);
   try {
     const r = await call("upande_tagmeter.valve.set_valve", { water_meter: m.sn, action: act });
     alert(r.status === "Rejected"
@@ -795,7 +801,7 @@ $("valve-table").addEventListener("click", async e => {
     location.reload();
   } catch (err) {
     alert("Could not queue the command:\n\n" + err.message);
-    $("valve-table").querySelectorAll("button[data-vact]").forEach(x => x.disabled = false);
+    wasEnabled.forEach(x => x.disabled = false);
   }
 });
 function refreshNames() { renderTables(); fillPickers(); fleetTitles();
@@ -983,7 +989,11 @@ function valveUI(elId, m) {
     // Always the serial, whatever the display mode: labels are not unique.
     const who = nameOf(m) === m.sn ? m.sn : `${nameOf(m)} (${m.sn})`;
     if (!confirm(`Ask meter ${who} to ${act} its valve?\n\nThe SMP accepts this immediately, but that only means it was queued — not that the valve moved.`)) return;
-    el.querySelectorAll("button").forEach(x => x.disabled = true);
+    // Only re-enable, on failure, the buttons that were actually enabled before this
+    // click — never hand back a button that was disabled for its own reason (no
+    // permission, already in flight).
+    const wasEnabled = [...el.querySelectorAll("button")].filter(x => !x.disabled);
+    wasEnabled.forEach(x => x.disabled = true);
     try {
       const r = await call("upande_tagmeter.valve.set_valve", { water_meter: m.sn, action: act });
       alert(r.status === "Rejected"
@@ -992,7 +1002,7 @@ function valveUI(elId, m) {
       location.reload();
     } catch (err) {
       alert("Could not queue the command:\n\n" + err.message);
-      el.querySelectorAll("button").forEach(x => x.disabled = false);
+      wasEnabled.forEach(x => x.disabled = false);
     }
   }));
 }
