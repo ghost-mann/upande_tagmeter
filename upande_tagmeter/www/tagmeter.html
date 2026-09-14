@@ -35,7 +35,7 @@ a{color:inherit}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
 .topbar{background:var(--surface-2);padding:14px 40px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;border-bottom:1px solid var(--hairline)}
-.topbar__brand{display:flex;align-items:center;gap:16px}
+.topbar__brand{cursor:pointer;display:flex;align-items:center;gap:16px}
 .topbar__logo{height:30px;width:auto}
 .topbar__divider{width:1px;height:22px;background:var(--hairline)}
 .topbar__product{font:600 14px var(--sans);color:var(--ink);letter-spacing:-.2px}
@@ -261,7 +261,7 @@ body.graphing .side{display:none}
     <div class="topbar__product">Kiwasco<small>Smart Water Metering</small></div>
   </div>
   <div class="topbar__nav">
-    <a href="#" class="on">Fleet</a>
+    <a href="#" class="on" data-view="view-fleet">Fleet</a>
     <a href="/app/water-meter" title="Water Meter list">Meters</a>
     <a href="/app/meter-reading" title="Meter Reading list">Readings</a>
     <a href="/app/meter-command" title="Meter Command list">Commands</a>
@@ -495,6 +495,7 @@ body.graphing .side{display:none}
       <div class="field"><label for="g-to">To</label><input type="datetime-local" id="g-to"></div>
       <button class="btn" id="g-go">Draw</button>
       <button class="btn btn--quiet" id="g-reset" title="Clear the zoom">Reset zoom</button>
+      <button class="btn btn--quiet" id="g-back" title="Back to the dashboard">← Dashboard</button>
       <div class="grow">
         <div class="gread"><small>Latest</small><b id="g-last">—</b></div>
         <div class="gread"><small>Peak</small><b id="g-peak">—</b></div>
@@ -1677,22 +1678,42 @@ document.addEventListener("click", async (e) => {
 });
 
 // ---- view switching ----
-document.querySelectorAll(".side__nav .side__link").forEach(a => a.addEventListener("click", e => {
-  e.preventDefault();
-  const v = e.currentTarget.dataset.view;
-  document.querySelectorAll(".side__nav .side__link").forEach(x => x.classList.remove("on"));
-  e.currentTarget.classList.add("on");
+// One place that switches views, so every route in stays consistent: the
+// sidebar, the brand, the top-bar Fleet link, and the Graph view's own way out.
+// Graph hides the sidebar for plot width, which used to leave no exit at all --
+// once you were in it, only a page reload got you back.
+function showView(v) {
+  document.querySelectorAll(".side__nav .side__link").forEach(x =>
+    x.classList.toggle("on", x.dataset.view === v));
   document.querySelectorAll(".main .view").forEach(s => { s.hidden = s.id !== v; });
+  document.querySelectorAll(".topbar__nav a[data-view]").forEach(x =>
+    x.classList.toggle("on", x.dataset.view === v));
   window.scrollTo({ top: 0 });
+
   if (v === "view-flow" && !flowLoaded) { flowLoaded = true; loadFlow(); }
   if (v === "view-register") { drawRegister(); zoneSummary(); }
-  // Graph mode drops the sidebar so the plot gets the full width.
   document.body.classList.toggle("graphing", v === "view-graph");
   if (v === "view-graph") {
     if (!graphLoaded) { graphLoaded = true; loadGraph(); }
     else if (chart) chart.draw();
   }
+}
+
+document.querySelectorAll(".side__nav .side__link").forEach(a => a.addEventListener("click", e => {
+  e.preventDefault();
+  showView(e.currentTarget.dataset.view);
 }));
+
+// The top-bar Fleet link was href="#" with nothing behind it: it looked like
+// home and did nothing. The brand is a home affordance people reach for too.
+document.querySelectorAll('.topbar__nav a[data-view], .topbar__brand').forEach(a =>
+  a.addEventListener("click", e => {
+    e.preventDefault();
+    showView(e.currentTarget.dataset.view || "view-fleet");
+  }));
+
+// Escape hatch for Graph, which has no sidebar to go back to.
+$("g-back") && $("g-back").addEventListener("click", () => showView("view-fleet"));
 {% endraw %}
 </script>
 </body></html>
