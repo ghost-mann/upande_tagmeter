@@ -484,7 +484,7 @@ body.graphing .side{display:none}
     <div class="gbar">
       <div class="field"><label for="g-meter">Meter</label><select id="g-meter"></select></div>
       <div class="field"><label for="g-measure">Measure</label><select id="g-measure">
-        <option value="hourly">Hourly flow rate · m³/h</option>
+        <option value="hourly">Hourly flow rate · m³/h · last 24h only</option>
         <option value="use">Consumption per reading · m³</option>
         <option value="cum">Cumulative volume · m³</option>
         <option value="bal">Prepaid balance · m³</option>
@@ -1303,12 +1303,18 @@ class LineChart {
       `${this.label}: ${s.v.length} points, ${s.v[s.v.length - 1].v} ${this.unit} latest`);
     const bottom = g.h - g.b;
 
-    for (const ty of niceTicks(s.lo, s.hi, 6)) {
+    // Decimals come from the SPACING of the ticks, not the size of the values.
+    // Keying on magnitude printed every tick of a 21.78-21.85 °C axis as "22":
+    // four identical labels, because 21.78 >= 10 rounded to zero decimals.
+    const tks = niceTicks(s.lo, s.hi, 6);
+    const step = tks.length > 1 ? Math.abs(tks[1] - tks[0]) : Math.abs(s.hi - s.lo) || 1;
+    const dp = Math.max(0, Math.min(4, Math.ceil(-Math.log10(step))));
+    for (const ty of tks) {
       const y = s.Y(ty);
       if (y < g.t - 1 || y > bottom + 1) continue;
       svg.appendChild(el("line", { class: "grid", x1: g.l, y1: y, x2: g.w - g.r, y2: y }));
       const tx = el("text", { class: "tick", x: g.l - 10, y: y + 3.5, "text-anchor": "end" });
-      tx.textContent = String(+ty.toFixed(Math.abs(ty) < 10 ? 2 : 0));
+      tx.textContent = ty.toFixed(dp);
       svg.appendChild(tx);
     }
     const fmt = timeFmt(s.x1 - s.x0);
@@ -1430,11 +1436,16 @@ class LineChart {
 }
 
 // ─── Graph view wiring ───────────────────────────────────────────────────────
-let chart = null, graphLoaded = false;
+let chart = null, graphLoaded = false, graphPicked = false;
 const MEASURES = {
-  hourly: { unit: "m³/h", label: "Hourly flow rate", src: "hourly" },
-  use:    { unit: "m³",   label: "Consumption per reading", src: "use" },
-  cum:    { unit: "m³",   label: "Cumulative volume", src: "cum" },
+  // `ranged: false` says the dates do not apply. The SMP ships a rolling
+  // 24-hour window attached to each reading, so this series is always that
+  // window from the newest reading in range -- 24 points, whatever dates are
+  // set. The control sits next to From/To implying otherwise, so the UI has to
+  // say so rather than look broken.
+  hourly: { unit: "m³/h", label: "Hourly flow rate", src: "hourly", ranged: false, flow: true },
+  use:    { unit: "m³",   label: "Consumption per reading", src: "use", flow: true },
+  cum:    { unit: "m³",   label: "Cumulative volume", src: "cum", flow: true },
   bal:    { unit: "m³",   label: "Prepaid balance", src: "bal" },
   temp:   { unit: "°C",   label: "Temperature", src: "temp" },
   rssi:   { unit: "dBm",  label: "Signal strength", src: "rssi" },
@@ -1458,16 +1469,57 @@ async function loadGraph() {
     const pts = key === "hourly"
       ? d.hourly.map(h => ({ x: toMs(h.t), v: h.v }))
       : d.readings.map(r => ({ x: toMs(r.t), v: r[m.src] })).filter(p => p.v != null);
-    chart.setData(pts, m.unit, `${m.label} · ${sn}`);
     const vals = pts.map(p => p.v);
+    const allZero = pts.length > 0 && vals.every(v => v === 0);
+
+    // On first open, land on something that actually varies. Every flow value
+    // in this fleet is zero -- 11,040 hourly points, all 0.0 -- so opening on
+    // the first measure showed a flat line and made the view look broken. This
+    // corrects itself once water flows: then hourly has variation and stays.
+    if (!graphPicked) {
+      graphPicked = true;
+      if (allZero) {
+        const alt = Object.keys(MEASURES).find(k => {
+          if (k === key) return false;
+          const src = MEASURES[k].src;
+          const v = d.readings.map(r => r[src]).filter(x => x != null);
+          return v.length > 1 && new Set(v).size > 1;
+        });
+        if (alt) {
+          $("g-measure").value = alt;
+          return loadGraph();
+        }
+      }
+    }
+
+    chart.setData(pts, m.unit, `${m.label} · ${sn}`);
     $("g-last").textContent = pts.length ? `${pts[pts.length - 1].v} ${m.unit}` : "—";
     $("g-peak").textContent = pts.length ? `${Math.max(...vals)} ${m.unit}` : "—";
     $("g-n").textContent = pts.length || "—";
+
     if (!pts.length) {
       $("g-plot").innerHTML = `<div class="empty" style="margin:24px 0"><b>Nothing to plot.</b>
         ${esc(sn)} has no ${esc(m.label.toLowerCase())} in this range. Widen the dates, or pick a
         meter that has reported.</div>`;
       chart = null;
+    } else if (allZero) {
+      // Say it rather than draw a straight line at zero, which reads as a
+      // rendering fault. The Flow view already refuses to fake a chart here.
+      $("g-plot").innerHTML = `<div class="empty" style="margin:24px 0"><b>Every value is zero.</b>
+        ${m.flow
+          ? `No water has passed ${esc(sn)} — cumulative volume reads 0.000 m³ and the empty-pipe
+             flag is set across this fleet. The meter is reporting; it is just not in service yet.
+             This chart fills in as soon as the first hour records volume.`
+          : `${esc(sn)} reported ${pts.length} points in this range and all of them are zero.`}
+        ${m.ranged === false
+          ? `<br><br>Note: this measure is the meter's own rolling 24-hour window, taken from its
+             newest reading. The From/To dates do not narrow it.`
+          : ""}</div>`;
+      chart = null;
+    } else if (m.ranged === false) {
+      $("g-plot").insertAdjacentHTML("beforeend", `<div class="note" style="margin-top:10px;
+        font-size:12px;color:var(--ink-4)">Rolling 24-hour window from the newest reading in range —
+        the From/To dates select which reading, not which hours.</div>`);
     }
   } catch (err) {
     $("g-plot").innerHTML = `<div class="empty" style="margin:24px 0">Could not load: ${esc(err.message)}</div>`;
