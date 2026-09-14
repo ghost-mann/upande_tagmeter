@@ -186,7 +186,20 @@ request time; there is no separate cache to go stale.
 
 ## Setup
 
-`sites/<site>/site_config.json` — credentials never live in a doctype field:
+Every configurable value resolves in three steps, in
+`upande_tagmeter/settings.py`:
+
+1. **`sites/<site>/site_config.json`** — authoritative. A site configured this
+   way behaves exactly as it did before the settings page existed.
+2. **TagMeter Settings** (`/app/tagmeter-settings`) — the desk page, for sites
+   where step 1 is unreachable. On hosted Frappe an operator can hold System
+   Manager and still have no way to write a server file, which otherwise leaves
+   the app permanently unconfigurable by the person actually running it. The
+   password is a `Password` field: encrypted at rest, never sent to the browser.
+3. The **built-in default**, which is what the code used all along.
+
+site_config is kept on top so an operator can never quietly override something
+an administrator pinned in a file only root can write.
 
 ```json
 {
@@ -196,17 +209,34 @@ request time; there is no separate cache to go stale.
 }
 ```
 
-Optional:
-
-| Key | Default | Purpose |
-|---|---|---|
-| `tagmeter_offline_after_hours` | `30` | Staleness window for `online` |
-| `tagmeter_min_interval` | `0.2` | Seconds between SMP calls |
-| `tagmeter_meter_timezone` | `UTC` | Zone of meter `TimeStamp` fields |
-| `tagmeter_max_attempts` | `3` | Attempts per call, network faults only |
-| `tagmeter_retry_backoff` | `1.0` | First backoff in seconds, then doubling |
-
 `002` in the URL is the tenant code, so a second tenant is a config change.
+
+Everything else is optional. The settings page carries the same defaults and
+the reasoning behind each one, shows what the multipliers work out to in hours,
+and lists which layer every value is actually coming from.
+
+| site_config key | Settings field | Default | Purpose |
+|---|---|---|---|
+| `tagmeter_console_url` | Console API URL | `http://iotcloud.tagmeter.com:8099/prod-api` | Undocumented console API, enrichment only |
+| `tagmeter_min_interval` | Minimum seconds between calls | `0.25` | Pacing against an undocumented rate limit |
+| `tagmeter_request_timeout` | Request timeout | `30` | Seconds before a call is abandoned |
+| `tagmeter_max_attempts` | Attempts per call | `3` | Counts the first try; transport faults only |
+| `tagmeter_retry_backoff` | Retry backoff | `1.0` | First backoff in seconds, then doubling |
+| `tagmeter_meter_timezone` | Meter timezone | `UTC` | Zone of meter `TimeStamp` fields |
+| `tagmeter_offline_after_hours` | Offline after | `30` | Staleness window for `online` |
+| `tagmeter_expected_cycle_hours` | Expected reporting cycle | `24` | One cycle, fleet-wide |
+| `tagmeter_late_multiplier` | Late after (× cycle) | `1.25` | One missed report plus grace |
+| `tagmeter_silent_multiplier` | Silent after (× cycle) | `3` | Three missed reports |
+| `gateway_stale_after_hours` | Gateway stale after | `6` | Heartbeat age that counts as down |
+| `tagmeter_valve_timeout_minutes` | Command expiry | `10` | Before a queued command is Expired |
+| `tagmeter_duplicate_window_seconds` | Duplicate window | `30` | Same-state repeat treated as a double-click |
+
+**Zero means "not set", not "zero".** Frappe stores an untouched `Float` or
+`Int` field as `0`, so a settings document nobody has ever opened would
+otherwise pin the app to a 0-hour reporting cycle, zero attempts per call and a
+0-second timeout. None of these values is meaningful at zero, so zero falls
+through to the default — in `site_config.json` too, so the two layers cannot
+disagree about what a zero means.
 
 > **The app needs its own SMP service account.** Requesting a token revokes the
 > previous one, so if a human logs into tagmeter.com as the same user, the app's
@@ -404,12 +434,8 @@ Alarm flags are **never** suppressed by link state. They are the last known
 physical state of the pipe, and a backhaul outage does not make a burst pipe
 less real.
 
-Config, all in `site_config.json`:
-
-| Key | Default |
-|---|---|
-| `tagmeter_expected_cycle_hours` | 24 |
-| `gateway_stale_after_hours` | 6 |
+Config: `tagmeter_expected_cycle_hours` (24) and `gateway_stale_after_hours`
+(6), in `site_config.json` or on the settings page. See [Setup](#setup).
 
 ## Known unknowns
 

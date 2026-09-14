@@ -13,17 +13,17 @@ from datetime import timedelta
 import frappe
 from frappe.utils import now_datetime
 
+from upande_tagmeter import settings
 from upande_tagmeter.sync import _to_system_naive, get_client
 from upande_tagmeter.vendor.errors import Outcome
 
 # A gateway heartbeats far more often than a meter reports, so staleness here
 # is measured in hours, not the 30 the meters need.
-GATEWAY_STALE_AFTER_HOURS = 6
+GATEWAY_STALE_AFTER_HOURS = settings.SPEC["gateway_stale_after_hours"][1]
 
 
 def stale_cutoff():
-	hours = frappe.conf.get("gateway_stale_after_hours") or GATEWAY_STALE_AFTER_HOURS
-	return now_datetime() - timedelta(hours=float(hours))
+	return now_datetime() - timedelta(hours=settings.get("gateway_stale_after_hours"))
 
 
 def gateway_health() -> dict[str, str]:

@@ -5,34 +5,252 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "intro_html", "credentials_sb", "api_url", "api_user", "cb_creds", "api_password",
-  "tuning_sb", "min_interval"
+  "intro_html",
+  "credentials_sb",
+  "api_url",
+  "api_user",
+  "cb_creds",
+  "api_password",
+  "console_url",
+  "pacing_sb",
+  "pacing_html",
+  "min_interval",
+  "request_timeout",
+  "cb_pacing",
+  "max_attempts",
+  "retry_backoff",
+  "meter_timezone",
+  "staleness_sb",
+  "staleness_html",
+  "expected_cycle_hours",
+  "late_multiplier",
+  "cb_stale",
+  "silent_multiplier",
+  "offline_after_hours",
+  "thresholds_html",
+  "gateway_sb",
+  "gateway_stale_after_hours",
+  "valve_sb",
+  "valve_html",
+  "valve_timeout_minutes",
+  "cb_valve",
+  "duplicate_window_seconds",
+  "effective_sb",
+  "effective_html"
  ],
  "fields": [
-  {"fieldname": "intro_html", "fieldtype": "HTML",
-   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">These are only used when the same keys are <b>absent</b> from <code>site_config.json</code>. A server-side config always wins, so a site already configured that way is unaffected by anything set here.</div>"},
-  {"fieldname": "credentials_sb", "fieldtype": "Section Break", "label": "Vendor API"},
-  {"fieldname": "api_url", "fieldtype": "Data", "label": "API URL",
-   "description": "e.g. https://tagmeter.com/restapi/v2_0/002/api"},
-  {"fieldname": "api_user", "fieldtype": "Data", "label": "Username"},
-  {"fieldname": "cb_creds", "fieldtype": "Column Break"},
-  {"fieldname": "api_password", "fieldtype": "Password", "label": "Password",
-   "description": "Encrypted at rest and never sent to the browser."},
-  {"fieldname": "tuning_sb", "fieldtype": "Section Break", "label": "Pacing"},
-  {"fieldname": "min_interval", "fieldtype": "Float", "label": "Minimum seconds between calls",
-   "default": "0.25", "precision": "3",
-   "description": "The vendor's rate limit is undocumented; 0.25 paces calls at four a second."}
+  {
+   "fieldname": "intro_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">Every value here resolves in three steps: <code>site_config.json</code> first, then this page, then the built-in default. A server-side config always wins, so a site already configured that way is unaffected by anything set here.<br>Leave a field <b>blank</b> — or <b>0</b>, which Frappe stores for an untouched number — to use the built-in default. Each description gives that default and why it is what it is. <b>Effective Configuration</b> at the bottom shows what is actually in force and where each value came from.</div>"
+  },
+  {
+   "fieldname": "credentials_sb",
+   "fieldtype": "Section Break",
+   "label": "Vendor API"
+  },
+  {
+   "fieldname": "api_url",
+   "fieldtype": "Data",
+   "label": "API URL",
+   "description": "The documented SMP REST API, e.g. https://tagmeter.com/restapi/v2_0/002/api"
+  },
+  {
+   "fieldname": "api_user",
+   "fieldtype": "Data",
+   "label": "Username"
+  },
+  {
+   "fieldname": "cb_creds",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_password",
+   "fieldtype": "Password",
+   "label": "Password",
+   "description": "Encrypted at rest and never sent to the browser."
+  },
+  {
+   "fieldname": "console_url",
+   "fieldtype": "Data",
+   "label": "Console API URL",
+   "description": "Optional. The vendor's internal console API, used only to enrich readings with the meter's own timestamp. Undocumented and plain HTTP, so nothing depends on it alone. Default: http://iotcloud.tagmeter.com:8099/prod-api"
+  },
+  {
+   "fieldname": "pacing_sb",
+   "fieldtype": "Section Break",
+   "label": "Pacing and Retries"
+  },
+  {
+   "fieldname": "pacing_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">The SMP publishes no rate limit and issues one token at a time — a new login revokes the previous one. These four values are what keep a fleet sweep from tripping either.</div>"
+  },
+  {
+   "fieldname": "min_interval",
+   "fieldtype": "Float",
+   "label": "Minimum seconds between calls",
+   "precision": "3",
+   "non_negative": 1,
+   "description": "Default 0.25, which paces calls at four a second. Raise it if the SMP starts refusing; it costs only sweep duration. 0 means use the default, not “no throttle” — the vendor publishes no rate limit, so an unthrottled sweep is not something to switch on by leaving a field empty."
+  },
+  {
+   "fieldname": "request_timeout",
+   "fieldtype": "Int",
+   "label": "Request timeout (seconds)",
+   "non_negative": 1,
+   "description": "Default 30. The SMP occasionally holds a connection open well past a normal response; below about 10 you will see healthy meters reported unreachable."
+  },
+  {
+   "fieldname": "cb_pacing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_attempts",
+   "fieldtype": "Int",
+   "label": "Attempts per call",
+   "non_negative": 1,
+   "description": "Default 3. Counts the first try, so 3 means two retries. Only transport errors and 5xx are retried — a refusal from the SMP is never repeated."
+  },
+  {
+   "fieldname": "retry_backoff",
+   "fieldtype": "Float",
+   "label": "Retry backoff (seconds)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 1.0, doubling each attempt. 0 means use the default."
+  },
+  {
+   "fieldname": "meter_timezone",
+   "fieldtype": "Data",
+   "label": "Meter timezone",
+   "description": "Default UTC. The zone the SMP's timestamps are expressed in, not the site's. Getting this wrong shifts every reading by a fixed number of hours and will read as meters reporting from the future."
+  },
+  {
+   "fieldname": "staleness_sb",
+   "fieldtype": "Section Break",
+   "label": "Reporting and Staleness"
+  },
+  {
+   "fieldname": "staleness_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">A meter is not broken because it is quiet — it is quiet most of the time by design. These decide how long silence has to last before it means something, and the two multipliers turn one cycle length into the <b>Late</b> and <b>Silent</b> thresholds so they move together.</div>"
+  },
+  {
+   "fieldname": "expected_cycle_hours",
+   "fieldtype": "Float",
+   "label": "Expected reporting cycle (hours)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 24. The SMP console shows \"Meter reading cycle: 1\" on every meter in this fleet, so one value covers all of them. Change it only if the vendor changes the cycle."
+  },
+  {
+   "fieldname": "late_multiplier",
+   "fieldtype": "Float",
+   "label": "Late after (× cycle)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 1.25 — one missed report plus a quarter-cycle of grace for join jitter."
+  },
+  {
+   "fieldname": "cb_stale",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "silent_multiplier",
+   "fieldtype": "Float",
+   "label": "Silent after (× cycle)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 3 — three missed reports. Silent means the gateway is healthy and the meter still is not talking, which is the state that justifies sending someone out."
+  },
+  {
+   "fieldname": "offline_after_hours",
+   "fieldtype": "Float",
+   "label": "Offline after (hours)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 30. Drives the Online flag, independently of the multipliers above. Set to match Late (cycle × late multiplier) so Online flips exactly where Late begins; a 6-hour threshold would mark most of the fleet offline every day."
+  },
+  {
+   "fieldname": "thresholds_html",
+   "fieldtype": "HTML",
+   "label": "Resulting thresholds"
+  },
+  {
+   "fieldname": "gateway_sb",
+   "fieldtype": "Section Break",
+   "label": "Gateway Health"
+  },
+  {
+   "fieldname": "gateway_stale_after_hours",
+   "fieldtype": "Float",
+   "label": "Gateway stale after (hours)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 6. A gateway heartbeats far more often than a meter reports, so staleness here is hours, not the 30 the meters need. Heartbeat age is checked as well as the vendor's own online flag, because that flag has read true for a gateway whose last heartbeat was two days old."
+  },
+  {
+   "fieldname": "valve_sb",
+   "fieldtype": "Section Break",
+   "label": "Valve Control"
+  },
+  {
+   "fieldname": "valve_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">Measured against the vendor's console history: a meter acts on a downlink within about 15 seconds, and the resulting uplink lands in the SMP a further ~2m04s later. A command that has not been confirmed well past that is not slow, it is lost.</div>"
+  },
+  {
+   "fieldname": "valve_timeout_minutes",
+   "fieldtype": "Float",
+   "label": "Command expiry (minutes)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 10. How long a queued command waits for confirmation before it is marked Expired. Raising this to hours does not make a lost command arrive — it only keeps the meter showing a request that is never coming."
+  },
+  {
+   "fieldname": "cb_valve",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "duplicate_window_seconds",
+   "fieldtype": "Int",
+   "label": "Duplicate window (seconds)",
+   "non_negative": 1,
+   "description": "Default 30. A second request for the same state inside this window is treated as a double-click and reuses the existing command rather than sending another downlink. Requests for the <i>opposite</i> state are never suppressed, at any speed."
+  },
+  {
+   "fieldname": "effective_sb",
+   "fieldtype": "Section Break",
+   "label": "Effective Configuration",
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:true"
+  },
+  {
+   "fieldname": "effective_html",
+   "fieldtype": "HTML",
+   "label": "Resolved values"
+  }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-14 15:00:00.000000",
+ "modified": "2026-09-14 16:30:00.000000",
  "modified_by": "Administrator",
  "module": "upande_tagmeter",
  "name": "TagMeter Settings",
  "owner": "Administrator",
  "permissions": [
-  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "print": 0, "email": 0, "share": 0}
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  }
  ],
  "quick_entry": 0,
  "sort_field": "modified",

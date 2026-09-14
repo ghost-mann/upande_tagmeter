@@ -13,6 +13,7 @@ from frappe.utils import now_datetime
 from frappe.utils.data import convert_utc_to_system_timezone
 from frappe.utils.synchronization import filelock
 
+from upande_tagmeter import settings
 from upande_tagmeter.consumption import consumption_delta
 from upande_tagmeter.vendor.client import TagMeterClient
 from upande_tagmeter.vendor.errors import AuthFailed, BlockedByVendor, ConfigError, Outcome
@@ -25,7 +26,11 @@ TOKEN_LOCK_NAME = "upande_tagmeter_token_refresh"
 # Meters report roughly every 12 hours with staggered join times, so staleness
 # has to be measured in tens of hours. A 6-hour threshold would mark most of the
 # fleet offline every day and generate around a hundred false alarms.
-DEFAULT_OFFLINE_AFTER_HOURS = 30
+#
+# Sourced from the settings SPEC rather than written twice: the number an
+# operator sees on the TagMeter Settings page and the number the code falls back
+# to must not be able to drift apart.
+DEFAULT_OFFLINE_AFTER_HOURS = settings.SPEC["offline_after_hours"][1]
 
 FLAG_FIELDS = tuple(FLAG_BITS)
 
@@ -57,44 +62,15 @@ class FrappeTokenStore:
 
 
 def _credentials():
-	"""Resolve credentials: site_config.json first, TagMeter Settings second.
+	"""``(url, user, password, min_interval)`` from wherever they are configured.
 
-	site_config is kept authoritative so a site already configured server-side
-	behaves exactly as before -- adding this fallback must not change a working
-	deployment.
-
-	The fallback exists because site_config is a server file. On a hosted site
-	an operator can hold System Manager and still have no way to write it, which
-	leaves the app permanently unconfigurable for the person actually running
-	it. A Password field is weaker than a file only root can read, but it is
-	encrypted at rest and never sent to the browser, and it is the same pattern
-	Frappe uses for payment and email credentials.
+	Resolution lives in :mod:`upande_tagmeter.settings`: site_config.json wins,
+	the TagMeter Settings page is the fallback for sites where that file cannot
+	be edited, and the built-in default is last. Kept as a function here because
+	it is the shape the two client factories below want.
 	"""
-	url = frappe.conf.get("tagmeter_api_url")
-	user = frappe.conf.get("tagmeter_api_user")
-	password = frappe.conf.get("tagmeter_api_password")
-	interval = frappe.conf.get("tagmeter_min_interval")
-
-	if url and user and password:
-		return url, user, password, interval
-
-	try:
-		settings = frappe.get_cached_doc("TagMeter Settings")
-	except Exception:
-		# The doctype may not exist yet on a site mid-migrate. Fall through to
-		# whatever site_config had, and let the caller report what is missing.
-		return url, user, password, interval
-
-	url = url or (settings.api_url or "").strip() or None
-	user = user or (settings.api_user or "").strip() or None
-	if not password:
-		try:
-			password = settings.get_password("api_password", raise_exception=False)
-		except Exception:
-			password = None
-	if interval is None:
-		interval = settings.min_interval or None
-	return url, user, password, interval
+	url, user, password = settings.credentials()
+	return url, user, password, settings.get("min_interval")
 
 
 def get_client() -> TagMeterClient:
@@ -112,10 +88,11 @@ def get_client() -> TagMeterClient:
 		user,
 		password,
 		token_store=FrappeTokenStore(),
-		tz_name=frappe.conf.get("tagmeter_meter_timezone") or METER_TZ,
-		min_interval=float(min_interval or 0.2),
-		max_attempts=int(frappe.conf.get("tagmeter_max_attempts") or 3),
-		retry_backoff=float(frappe.conf.get("tagmeter_retry_backoff") or 1.0),
+		tz_name=settings.get("meter_timezone") or METER_TZ,
+		min_interval=min_interval,
+		max_attempts=settings.get("max_attempts"),
+		retry_backoff=settings.get("retry_backoff"),
+		timeout=settings.get("request_timeout"),
 	)
 
 
@@ -146,9 +123,9 @@ def get_console_client():
 	the sole path for anything that must keep working. See
 	``vendor/console_api.py`` for what it buys us and what it costs.
 	"""
-	from upande_tagmeter.vendor.console_api import DEFAULT_BASE_URL, ConsoleClient
+	from upande_tagmeter.vendor.console_api import ConsoleClient
 
-	url = frappe.conf.get("tagmeter_console_url") or DEFAULT_BASE_URL
+	url = settings.get("console_url")
 	# Same account as the documented API, so resolved the same way -- otherwise
 	# a site configured through TagMeter Settings would have working reads and a
 	# console client that inexplicably did not.
@@ -158,7 +135,11 @@ def get_console_client():
 			"The console API reuses the TagMeter username and password. Set them "
 			"in site_config.json or in the TagMeter Settings page."
 		)
-	return ConsoleClient(url, user, password, token_store=FrappeConsoleTokenStore())
+	return ConsoleClient(
+		url, user, password,
+		token_store=FrappeConsoleTokenStore(),
+		timeout=settings.get("request_timeout"),
+	)
 
 
 def _to_system_naive(aware_utc):
@@ -174,8 +155,7 @@ def _to_system_naive(aware_utc):
 
 
 def _offline_cutoff():
-	hours = frappe.conf.get("tagmeter_offline_after_hours") or DEFAULT_OFFLINE_AFTER_HOURS
-	return now_datetime() - timedelta(hours=float(hours))
+	return now_datetime() - timedelta(hours=settings.get("offline_after_hours"))
 
 
 # ── single meter ─────────────────────────────────────────────────────────────
@@ -485,13 +465,13 @@ def refresh_online_flags() -> dict:
 # cycle: 1" on every meter), so one configured value is enough. Late carries a
 # 25% grace for jitter, which lands on the same 30h the online flag uses -- so
 # Late begins exactly where online flips, and nothing gets noisier.
-EXPECTED_CYCLE_HOURS = 24
-LATE_MULTIPLIER = 1.25
-SILENT_MULTIPLIER = 3
+EXPECTED_CYCLE_HOURS = settings.SPEC["expected_cycle_hours"][1]
+LATE_MULTIPLIER = settings.SPEC["late_multiplier"][1]
+SILENT_MULTIPLIER = settings.SPEC["silent_multiplier"][1]
 
 
 def _cycle_hours() -> float:
-	return float(frappe.conf.get("tagmeter_expected_cycle_hours") or EXPECTED_CYCLE_HOURS)
+	return settings.get("expected_cycle_hours")
 
 
 @frappe.whitelist()
@@ -515,8 +495,8 @@ def refresh_link_states() -> dict:
 
 	now = now_datetime()
 	cycle = _cycle_hours()
-	late_cutoff = now - timedelta(hours=cycle * LATE_MULTIPLIER)
-	silent_cutoff = now - timedelta(hours=cycle * SILENT_MULTIPLIER)
+	late_cutoff = now - timedelta(hours=cycle * settings.get("late_multiplier"))
+	silent_cutoff = now - timedelta(hours=cycle * settings.get("silent_multiplier"))
 	down = set(gateway_module.unhealthy_gateways())
 
 	buckets: dict[str, list[str]] = {}

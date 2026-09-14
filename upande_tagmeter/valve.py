@@ -27,6 +27,7 @@ command that had already succeeded.
 import frappe
 from frappe.utils import add_to_date, now_datetime
 
+from upande_tagmeter import settings
 from upande_tagmeter.sync import get_client
 from upande_tagmeter.vendor.errors import AuthFailed, BlockedByVendor, Outcome
 
@@ -38,11 +39,11 @@ from upande_tagmeter.vendor.errors import AuthFailed, BlockedByVendor, Outcome
 # An earlier 26-HOUR expiry came from reading the meters' *idle* AMR cadence
 # (9-21h) as the actuation cycle. It is not: idle telemetry and command response
 # are different things, and conflating them locked meters out for a day.
-VALVE_TIMEOUT_MINUTES = 10
+VALVE_TIMEOUT_MINUTES = settings.SPEC["valve_timeout_minutes"][1]
 
 # A second command for the SAME state this soon is a double-click, not intent.
 # Returning the existing command keeps it idempotent without a second downlink.
-DUPLICATE_WINDOW_SECONDS = 30
+DUPLICATE_WINDOW_SECONDS = settings.SPEC["duplicate_window_seconds"][1]
 
 ACTIONS = {
 	"open": {"command_type": "valve_open", "vendor": "Open", "requested_state": "Open"},
@@ -93,7 +94,7 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 	if effective == spec["requested_state"]:
 		if pending:
 			age = (now_datetime() - pending.enqueued_at).total_seconds()
-			if age <= DUPLICATE_WINDOW_SECONDS:
+			if age <= settings.get("duplicate_window_seconds"):
 				# Double-click. Hand back the command already in flight rather
 				# than putting a second identical downlink on the air.
 				return {"command": pending.name, "status": "Queued", "sent": False,
@@ -118,9 +119,7 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 			f"arrived."
 		))
 
-	minutes = float(expiry_hours * 60) if expiry_hours else float(
-		frappe.conf.get("tagmeter_valve_timeout_minutes") or VALVE_TIMEOUT_MINUTES
-	)
+	minutes = float(expiry_hours * 60) if expiry_hours else settings.get("valve_timeout_minutes")
 	command = frappe.get_doc({
 		"doctype": "Meter Command",
 		"water_meter": meter.name,
