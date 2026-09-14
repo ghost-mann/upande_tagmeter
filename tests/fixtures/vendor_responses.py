@@ -82,3 +82,12 @@ AMR_TOKEN_EXPIRED = {
 	"code": 200,
 	"message": "Authorization Token expired or invalid or unknown meterID 68753500170871",
 }
+
+# The same code-200 auth failure, on a WRITE. Reported from the field
+# 2026-09-11 as "The SMP refused it: Authorization Token expired or invalid or
+# unknown meterID 68753500170872" -- a valve command killed by an expired
+# token, because a write with no "success" in its message reads as a refusal.
+VALVE_TOKEN_EXPIRED = {
+	"code": 200,
+	"message": "Authorization Token expired or invalid or unknown meterID 68753500170872",
+}

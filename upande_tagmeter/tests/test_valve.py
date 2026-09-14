@@ -82,16 +82,26 @@ class TestValve(IntegrationTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			valve.set_valve(sn, "open")
 
-	def test_a_second_command_is_refused_while_one_is_in_flight(self):
-		"""Two competing downlinks make the outcome ambiguous."""
+	def test_an_opposite_command_supersedes_the_one_in_flight(self):
+		"""The vendor's console accepts commands back to back with no lock, and
+		its history holds two confirmations ten seconds apart. Last write wins."""
 		sn = "68753500171002"
 		self._meter(sn)
 		client = FakeClient(OK, OK)
 		with patch.object(valve, "get_client", return_value=client):
-			valve.set_valve(sn, "close")
-			with self.assertRaises(frappe.ValidationError):
-				valve.set_valve(sn, "open")
-		self.assertEqual(len(client.sent), 1)
+			first = valve.set_valve(sn, "close")
+			second = valve.set_valve(sn, "open")
+
+		self.assertEqual(len(client.sent), 2, "both downlinks must reach the SMP")
+		self.assertEqual(client.sent, [(sn, "Close"), (sn, "Open")])
+		superseded = frappe.get_doc("Meter Command", first["command"])
+		self.assertEqual(superseded.status, "Expired")
+		self.assertIn("Superseded", superseded.failure_reason)
+		self.assertEqual(
+			frappe.db.get_value("Meter Command", second["command"], "status"), "Queued")
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_in_flight"),
+		                 second["command"])
+		valve.release(sn)
 
 	def test_an_unknown_action_is_refused(self):
 		sn = "68753500171003"
@@ -223,3 +233,196 @@ class TestValve(IntegrationTestCase):
 		self.assertEqual(rows[sn]["valve_reported"], "Open")
 		# in-flight distinguishes "waiting" from "not obeying"
 		self.assertEqual(rows[sn]["valve_in_flight"], res["command"])
+
+	# ── no-op guard ──────────────────────────────────────────────────────────
+
+	def test_asking_for_the_state_the_valve_already_reports_is_refused(self):
+		"""A no-op still takes the meter out of service for as long as
+		confirmation takes.
+
+		Measured 2026-09-11: two of three locked meters had been asked to Open
+		while already reporting Open. Nothing could ever change, and the lock
+		would have held until the next uplink -- 20.8h away on one of them.
+		"""
+		sn = "68753500171020"
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, "valve_reported", "Open", update_modified=False)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			with self.assertRaises(frappe.ValidationError):
+				valve.set_valve(sn, "open")
+		self.assertEqual(client.sent, [], "nothing may reach the SMP")
+		self.assertEqual(frappe.db.count("Meter Command", {"water_meter": sn}), 0)
+		self.assertIsNone(frappe.db.get_value("Water Meter", sn, "valve_in_flight"))
+
+	def test_an_unknown_reported_state_never_blocks_a_command(self):
+		"""Unknown is the default on a meter that has never reported a valve
+		state. Treating it as a no-op would lock out every new meter."""
+		sn = "68753500171021"
+		self._meter(sn)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_reported"), "Unknown")
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "open")
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Queued")
+		valve.release(sn)  # the watchdog tests sweep every Queued row; do not leak one
+
+	def test_the_opposite_state_is_still_allowed(self):
+		sn = "68753500171022"
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, "valve_reported", "Closed", update_modified=False)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "open")
+		self.assertEqual(client.sent, [(sn, "Open")])
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Queued")
+		valve.release(sn)  # the watchdog tests sweep every Queued row; do not leak one
+
+	# ── releasing a stuck lock ───────────────────────────────────────────────
+
+	def test_releasing_cancels_the_command_and_frees_the_meter(self):
+		sn = "68753500171023"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "close")
+		out = valve.release(sn, reason="meter will not report for 20h")
+
+		self.assertEqual(out["released"], res["command"])
+		command = frappe.get_doc("Meter Command", res["command"])
+		self.assertEqual(command.status, "Expired")
+		self.assertIn("20h", command.failure_reason)
+		self.assertIn(frappe.session.user, command.failure_reason)
+		self.assertIsNone(frappe.db.get_value("Water Meter", sn, "valve_in_flight"))
+
+	def test_releasing_a_meter_with_nothing_in_flight_is_refused(self):
+		sn = "68753500171024"
+		self._meter(sn)
+		with self.assertRaises(frappe.ValidationError):
+			valve.release(sn)
+
+	def test_releasing_leaves_the_desired_state_as_the_operators_intent(self):
+		"""The request stood; only the lock is lifted. Clearing intent too would
+		erase what the operator asked for."""
+		sn = "68753500171025"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(sn, "close")
+		valve.release(sn)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "valve_desired"), "Closed")
+
+	# ── rapid toggling ───────────────────────────────────────────────────────
+
+	def test_a_double_click_returns_the_same_command_not_a_second_downlink(self):
+		"""Identical intent inside the duplicate window is a slipped finger, not
+		a second request. Two identical downlinks would be pure air-time."""
+		sn = "68753500171030"
+		self._meter(sn)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			first = valve.set_valve(sn, "close")
+			again = valve.set_valve(sn, "close")
+
+		self.assertEqual(again["command"], first["command"])
+		self.assertFalse(again["sent"])
+		self.assertEqual(len(client.sent), 1, "the second click must not transmit")
+		valve.release(sn)
+
+	def test_open_close_open_is_not_blocked_by_the_stale_reported_state(self):
+		"""valve_reported lags a command by ~2 minutes. Judging a new request
+		against it would refuse the third click of open -> close -> open."""
+		sn = "68753500171031"
+		self._meter(sn)
+		frappe.db.set_value("Water Meter", sn, "valve_reported", "Open", update_modified=False)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(sn, "close")
+			# Reported is still "Open" here -- only the pending request says Closed.
+			res = valve.set_valve(sn, "open")
+
+		self.assertEqual(client.sent, [(sn, "Close"), (sn, "Open")])
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Queued")
+		valve.release(sn)
+
+	def test_the_expiry_is_minutes_not_a_day(self):
+		sn = "68753500171032"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "close")
+		command = frappe.get_doc("Meter Command", res["command"])
+		window = (command.expires_at - command.enqueued_at).total_seconds() / 60
+		self.assertAlmostEqual(window, valve.VALVE_TIMEOUT_MINUTES, delta=1)
+		self.assertLess(window, 60, "a 26-hour expiry was the original defect")
+		valve.release(sn)
+
+	# ── polling what is in flight ────────────────────────────────────────────
+
+	def test_poll_pending_only_touches_meters_with_a_command_in_flight(self):
+		"""A command reaches the meter in seconds, but nothing was checking.
+
+		The browser watcher covers only the row that was clicked and dies on a
+		reload; sync_fleet runs every four hours; the watchdog expires and
+		re-sends but never polls. So commands sat Queued while their confirming
+		readings were already on the SMP -- measured 2026-09-11, two commands
+		confirmed the instant they were polled, six and twenty-five seconds
+		after the meter had actually acted.
+		"""
+		waiting = "68753500171040"
+		idle = "68753500171041"
+		self._meter(waiting)
+		self._meter(idle)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(waiting, "close")
+
+		polled = []
+		with patch.object(valve, "_sync_meter", side_effect=lambda sn, client=None: polled.append(sn)):
+			out = valve.poll_pending(client=object())
+
+		self.assertIn(waiting, polled)
+		self.assertNotIn(idle, polled, "a meter with nothing pending costs an API call for nothing")
+		self.assertEqual(out["polled"], len(polled))
+		valve.release(waiting)
+
+	def test_poll_pending_is_free_when_nothing_is_in_flight(self):
+		"""The point of scoping it: idle, it must cost nothing at all, which is
+		what lets it run every couple of minutes.
+
+		The queued set is patched rather than emptied -- this site carries real
+		commands, and a test that waits for a globally empty table would be
+		asserting about production data.
+		"""
+		polled = []
+		with patch.object(valve.frappe, "get_all", return_value=[]), \
+		     patch.object(valve, "get_client", side_effect=AssertionError("built a client for nothing")), \
+		     patch.object(valve, "_sync_meter", side_effect=lambda sn, client=None: polled.append(sn)):
+			out = valve.poll_pending()
+		self.assertEqual(polled, [])
+		self.assertEqual(out, {"polled": 0, "confirmed": [], "failures": []})
+
+	def test_poll_pending_survives_one_meter_failing(self):
+		"""One unreachable meter must not strand the others' confirmations."""
+		a = "68753500171042"
+		b = "68753500171043"
+		self._meter(a)
+		self._meter(b)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			valve.set_valve(a, "close")
+			valve.set_valve(b, "close")
+
+		def flaky(sn, client=None):
+			if sn == a:
+				raise RuntimeError("meter unreachable")
+
+		with patch.object(valve, "_sync_meter", side_effect=flaky):
+			out = valve.poll_pending(client=object())
+
+		self.assertIn(a, out["failures"])
+		self.assertNotIn(b, out["failures"], "one bad meter must not fail its neighbours")
+		# Counted, not equalled: this site carries real queued commands too.
+		self.assertGreaterEqual(out["polled"], 2)
+		valve.release(a)
+		valve.release(b)

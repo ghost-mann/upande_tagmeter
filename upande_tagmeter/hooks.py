@@ -28,6 +28,17 @@ scheduler_events = {
 		# read, so each sweep is one request per meter and the SMP's rate limit
 		# is undocumented.
 		"0 */4 * * *": ["upande_tagmeter.sync.sync_fleet"],
+		# A valve command is answered in seconds -- measured at six and
+		# twenty-five seconds on 2026-09-11 -- and the reading reaches the SMP
+		# about two minutes later. Nothing was checking in between: the
+		# dashboard's watcher only covers the row that was clicked and dies on
+		# a reload, and the sweep above is four hours away. So commands sat
+		# Queued while their confirming readings were already waiting.
+		#
+		# This costs nothing when no command is in flight: it polls only the
+		# meters that have one, and makes no API call at all when there are
+		# none. That is what lets it run this often.
+		"*/2 * * * *": ["upande_tagmeter.valve.poll_pending"],
 	},
 	# Order here is a preference, not a guarantee. Frappe enqueues each entry
 	# as its own background job, so with more than one worker they can and do

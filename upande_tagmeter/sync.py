@@ -77,6 +77,46 @@ def get_client() -> TagMeterClient:
 	)
 
 
+CONSOLE_TOKEN_CACHE_KEY = "upande_tagmeter:console_token"
+
+
+class FrappeConsoleTokenStore:
+	"""Console token, shared across workers through the Frappe cache.
+
+	Simpler than :class:`FrappeTokenStore`: the console API issues per-login
+	tokens that do not appear to revoke each other, so no single-flight lock is
+	needed. If that turns out to be wrong -- if the app and a human logging into
+	the console start evicting one another -- this is where the lock goes, and
+	the fix is really a dedicated service account.
+	"""
+
+	def get(self):
+		return frappe.cache().get_value(CONSOLE_TOKEN_CACHE_KEY)
+
+	def set(self, token):
+		frappe.cache().set_value(CONSOLE_TOKEN_CACHE_KEY, token)
+
+
+def get_console_client():
+	"""Client for the vendor's internal console API.
+
+	Undocumented and plain HTTP, so it is an enrichment source only -- never
+	the sole path for anything that must keep working. See
+	``vendor/console_api.py`` for what it buys us and what it costs.
+	"""
+	from upande_tagmeter.vendor.console_api import DEFAULT_BASE_URL, ConsoleClient
+
+	url = frappe.conf.get("tagmeter_console_url") or DEFAULT_BASE_URL
+	user = frappe.conf.get("tagmeter_api_user")
+	password = frappe.conf.get("tagmeter_api_password")
+	if not (user and password):
+		raise ConfigError(
+			"The console API reuses tagmeter_api_user and tagmeter_api_password "
+			"from site_config.json."
+		)
+	return ConsoleClient(url, user, password, token_store=FrappeConsoleTokenStore())
+
+
 def _to_system_naive(aware_utc):
 	"""Aware UTC -> naive datetime in the site's timezone, ready to store.
 
@@ -289,6 +329,18 @@ def sync_fleet(limit: int | None = None, only_profile: str | None = None) -> dic
 			failures.append(name)
 			tally["error"] = tally.get("error", 0) + 1
 
+		# Commit per meter, not at the end. A sweep is serial and network-bound:
+		# 100 meters takes minutes, and holding one transaction across all of it
+		# keeps row locks on tabWater Meter and tabMeter Reading for the whole
+		# run. Anything else touching those tables then waits out MariaDB's
+		# 50-second lock timeout and fails -- observed 2026-09-11, a desk-
+		# triggered sweep blocking an unrelated query for the full 50s.
+		#
+		# The cost is that a sweep is visible as it progresses rather than
+		# atomically. That is the better failure too: a sweep interrupted
+		# halfway leaves the meters it reached genuinely updated.
+		frappe.db.commit()  # nosemgrep
+
 	# Both derived flags are recomputed from the same sweep. online alone is
 	# not enough: this pass has just moved last_seen on up to 100 meters, and
 	# leaving link_state to the hourly job would show a diagnosis computed
@@ -296,6 +348,63 @@ def sync_fleet(limit: int | None = None, only_profile: str | None = None) -> dic
 	refresh_online_flags()
 	refresh_link_states()
 	return {"polled": len(names), "tally": tally, "failures": failures}
+
+
+@frappe.whitelist()
+def enqueue_fleet_sync(only_profile: str | None = None) -> dict:
+	"""Kick off a full sweep in the background and return immediately.
+
+	A sweep is serial -- the SMP has no bulk read -- and 100 meters takes
+	roughly one to three minutes. That is far past a request timeout, so the
+	desk cannot call :func:`sync_fleet` directly and must hand it to a worker.
+
+	``timeout`` is generous rather than tight: a sweep that dies halfway leaves
+	some meters fresh and others stale, which is worse than one that takes a
+	while.
+	"""
+	frappe.enqueue(
+		"upande_tagmeter.sync.sync_fleet",
+		queue="long",
+		timeout=1800,
+		only_profile=only_profile,
+		job_name=f"tagmeter-fleet-sync-{frappe.session.user}",
+	)
+	total = frappe.db.count("Water Meter", {"status": ("!=", "Decommissioned")} if not only_profile
+	                        else {"status": ("!=", "Decommissioned"), "meter_profile": only_profile})
+	return {"queued": True, "meters": total, "profile": only_profile}
+
+
+@frappe.whitelist()
+def poll_many(meter_sns) -> dict:
+	"""Poll a named handful of meters now, on one shared token.
+
+	For a selection in the desk. Deliberately not for the whole fleet: that is
+	what :func:`enqueue_fleet_sync` is for, and doing 100 serially inside a
+	request would time out.
+	"""
+	if isinstance(meter_sns, str):
+		meter_sns = json.loads(meter_sns)
+	meter_sns = [str(s).strip() for s in (meter_sns or []) if str(s).strip()]
+	if not meter_sns:
+		frappe.throw("Select at least one meter.")
+	if len(meter_sns) > 25:
+		frappe.throw(
+			f"{len(meter_sns)} meters is too many for one request -- each is a separate "
+			"call to the SMP, taken serially. Use 'Pull readings for every meter', "
+			"which runs in the background."
+		)
+
+	client = get_client()
+	tally: dict[str, int] = {}
+	failures = []
+	for meter_sn in meter_sns:
+		try:
+			result = sync_meter(meter_sn, client=client)
+			tally[result["status"]] = tally.get(result["status"], 0) + 1
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), f"TagMeter poll failed for {meter_sn}")
+			failures.append(meter_sn)
+	return {"polled": len(meter_sns), "tally": tally, "failures": failures}
 
 
 @frappe.whitelist()

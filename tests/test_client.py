@@ -416,3 +416,35 @@ def test_a_genuine_empty_record_is_not_mistaken_for_an_expired_token():
 	assert outcome is Outcome.OK
 	assert data is None
 	assert client.session.endpoints == ["req_authorization_token", "get_latest_amr"]
+
+
+# ── the same code-200 auth failure, on the write path ────────────────────────
+
+def test_a_write_refused_for_an_expired_token_refreshes_instead_of_failing():
+	"""A write classifies on its message, and an expired token's message has no
+	"success" in it -- so it read as a rejection and the command was closed out
+	as Rejected for good. Reported from the field, on a live valve."""
+	client = make([fx.AUTH_OK, fx.VALVE_TOKEN_EXPIRED, fx.AUTH_OK,
+	                {"code": 200, "message": "Operation success!"}])
+	outcome, body = client.set_valve("68753500170872", "Open")
+	assert outcome is Outcome.OK
+	assert client.session.endpoints == [
+		"req_authorization_token", "valve_control", "req_authorization_token", "valve_control"
+	]
+
+
+def test_the_same_write_message_on_a_fresh_token_is_a_rejection_not_an_auth_failure():
+	"""Their message conflates an expired token with an unknown meterID. A
+	freshly issued token rules out the first, so what is left is a real
+	refusal -- and a refusal must not raise, or one bad serial aborts a sweep."""
+	client = make([fx.AUTH_OK, fx.VALVE_TOKEN_EXPIRED, fx.AUTH_OK, fx.VALVE_TOKEN_EXPIRED])
+	outcome, body = client.set_valve("68753500170872", "Open")
+	assert outcome is Outcome.REJECTED
+
+
+def test_a_genuine_write_refusal_is_still_a_refusal():
+	"""Regression guard: an invalid command must not be mistaken for auth."""
+	client = make([fx.AUTH_OK, {"code": 200, "message": "Invalid valve control command"}])
+	outcome, body = client.set_valve("68753500170872", "Open")
+	assert outcome is Outcome.REJECTED
+	assert client.session.endpoints == ["req_authorization_token", "valve_control"]
