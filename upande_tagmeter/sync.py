@@ -56,14 +56,56 @@ class FrappeTokenStore:
 			yield
 
 
-def get_client() -> TagMeterClient:
+def _credentials():
+	"""Resolve credentials: site_config.json first, TagMeter Settings second.
+
+	site_config is kept authoritative so a site already configured server-side
+	behaves exactly as before -- adding this fallback must not change a working
+	deployment.
+
+	The fallback exists because site_config is a server file. On a hosted site
+	an operator can hold System Manager and still have no way to write it, which
+	leaves the app permanently unconfigurable for the person actually running
+	it. A Password field is weaker than a file only root can read, but it is
+	encrypted at rest and never sent to the browser, and it is the same pattern
+	Frappe uses for payment and email credentials.
+	"""
 	url = frappe.conf.get("tagmeter_api_url")
 	user = frappe.conf.get("tagmeter_api_user")
 	password = frappe.conf.get("tagmeter_api_password")
+	interval = frappe.conf.get("tagmeter_min_interval")
+
+	if url and user and password:
+		return url, user, password, interval
+
+	try:
+		settings = frappe.get_cached_doc("TagMeter Settings")
+	except Exception:
+		# The doctype may not exist yet on a site mid-migrate. Fall through to
+		# whatever site_config had, and let the caller report what is missing.
+		return url, user, password, interval
+
+	url = url or (settings.api_url or "").strip() or None
+	user = user or (settings.api_user or "").strip() or None
+	if not password:
+		try:
+			password = settings.get_password("api_password", raise_exception=False)
+		except Exception:
+			password = None
+	if interval is None:
+		interval = settings.min_interval or None
+	return url, user, password, interval
+
+
+def get_client() -> TagMeterClient:
+	url, user, password, min_interval = _credentials()
 	if not (url and user and password):
 		raise ConfigError(
-			"Add tagmeter_api_url, tagmeter_api_user and tagmeter_api_password to "
-			"site_config.json. Credentials never live in a doctype field."
+			"No TagMeter credentials configured. Set them either in "
+			"site_config.json (tagmeter_api_url, tagmeter_api_user, "
+			"tagmeter_api_password), which needs server access, or in the "
+			"TagMeter Settings page in the desk, which does not. site_config "
+			"wins where both are present."
 		)
 	return TagMeterClient(
 		url,
@@ -71,7 +113,7 @@ def get_client() -> TagMeterClient:
 		password,
 		token_store=FrappeTokenStore(),
 		tz_name=frappe.conf.get("tagmeter_meter_timezone") or METER_TZ,
-		min_interval=float(frappe.conf.get("tagmeter_min_interval") or 0.2),
+		min_interval=float(min_interval or 0.2),
 		max_attempts=int(frappe.conf.get("tagmeter_max_attempts") or 3),
 		retry_backoff=float(frappe.conf.get("tagmeter_retry_backoff") or 1.0),
 	)
@@ -107,12 +149,14 @@ def get_console_client():
 	from upande_tagmeter.vendor.console_api import DEFAULT_BASE_URL, ConsoleClient
 
 	url = frappe.conf.get("tagmeter_console_url") or DEFAULT_BASE_URL
-	user = frappe.conf.get("tagmeter_api_user")
-	password = frappe.conf.get("tagmeter_api_password")
+	# Same account as the documented API, so resolved the same way -- otherwise
+	# a site configured through TagMeter Settings would have working reads and a
+	# console client that inexplicably did not.
+	_, user, password, _interval = _credentials()
 	if not (user and password):
 		raise ConfigError(
-			"The console API reuses tagmeter_api_user and tagmeter_api_password "
-			"from site_config.json."
+			"The console API reuses the TagMeter username and password. Set them "
+			"in site_config.json or in the TagMeter Settings page."
 		)
 	return ConsoleClient(url, user, password, token_store=FrappeConsoleTokenStore())
 

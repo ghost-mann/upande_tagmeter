@@ -1,0 +1,41 @@
+{
+ "actions": [],
+ "creation": "2026-09-14 15:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "intro_html", "credentials_sb", "api_url", "api_user", "cb_creds", "api_password",
+  "tuning_sb", "min_interval"
+ ],
+ "fields": [
+  {"fieldname": "intro_html", "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">These are only used when the same keys are <b>absent</b> from <code>site_config.json</code>. A server-side config always wins, so a site already configured that way is unaffected by anything set here.</div>"},
+  {"fieldname": "credentials_sb", "fieldtype": "Section Break", "label": "Vendor API"},
+  {"fieldname": "api_url", "fieldtype": "Data", "label": "API URL",
+   "description": "e.g. https://tagmeter.com/restapi/v2_0/002/api"},
+  {"fieldname": "api_user", "fieldtype": "Data", "label": "Username"},
+  {"fieldname": "cb_creds", "fieldtype": "Column Break"},
+  {"fieldname": "api_password", "fieldtype": "Password", "label": "Password",
+   "description": "Encrypted at rest and never sent to the browser."},
+  {"fieldname": "tuning_sb", "fieldtype": "Section Break", "label": "Pacing"},
+  {"fieldname": "min_interval", "fieldtype": "Float", "label": "Minimum seconds between calls",
+   "default": "0.25", "precision": "3",
+   "description": "The vendor's rate limit is undocumented; 0.25 paces calls at four a second."}
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-14 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "upande_tagmeter",
+ "name": "TagMeter Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "print": 0, "email": 0, "share": 0}
+ ],
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

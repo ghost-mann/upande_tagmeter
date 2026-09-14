@@ -386,3 +386,59 @@ class TestSync(IntegrationTestCase):
 
 		after = {sn: frappe.db.get_value("Water Meter", sn, "online") for sn, _h, _g in fixture}
 		self.assertEqual(before, after)
+
+
+class TestCredentialResolution(IntegrationTestCase):
+	"""Where get_client() looks for credentials, and in what order.
+
+	site_config.json stays authoritative. TagMeter Settings exists for sites
+	where nobody has server or dashboard access -- a real situation: an operator
+	with System Manager on a Frappe Cloud site cannot edit site_config at all,
+	which left the app permanently unconfigurable for them.
+	"""
+
+	def _settings(self, **values):
+		doc = frappe.get_single("TagMeter Settings")
+		doc.update(values)
+		doc.save(ignore_permissions=True)
+		frappe.clear_document_cache("TagMeter Settings", "TagMeter Settings")
+		return doc
+
+	def test_site_config_wins_when_both_are_present(self):
+		"""A site already configured server-side must not change behaviour."""
+		self._settings(api_url="https://settings.example/api", api_user="settings-user",
+		               api_password="settings-pw")
+		with patch.dict(frappe.local.conf, {
+			"tagmeter_api_url": "https://conf.example/api",
+			"tagmeter_api_user": "conf-user",
+			"tagmeter_api_password": "conf-pw",
+		}):
+			client = sync.get_client()
+		self.assertEqual(client.base_url, "https://conf.example/api")
+		self.assertEqual(client.username, "conf-user")
+
+	def test_settings_are_used_when_site_config_is_empty(self):
+		self._settings(api_url="https://settings.example/api", api_user="settings-user",
+		               api_password="settings-pw")
+		with patch.dict(frappe.local.conf, {
+			"tagmeter_api_url": None, "tagmeter_api_user": None,
+			"tagmeter_api_password": None,
+		}):
+			client = sync.get_client()
+		self.assertEqual(client.base_url, "https://settings.example/api")
+		self.assertEqual(client.username, "settings-user")
+		self.assertEqual(client.password, "settings-pw")
+
+	def test_the_error_names_both_places_when_neither_is_set(self):
+		"""The old message named only site_config.json, which is a file the
+		person reading the error often cannot edit."""
+		self._settings(api_url="", api_user="", api_password="")
+		with patch.dict(frappe.local.conf, {
+			"tagmeter_api_url": None, "tagmeter_api_user": None,
+			"tagmeter_api_password": None,
+		}):
+			with self.assertRaises(Exception) as caught:
+				sync.get_client()
+		message = str(caught.exception)
+		self.assertIn("TagMeter Settings", message)
+		self.assertIn("site_config.json", message)
