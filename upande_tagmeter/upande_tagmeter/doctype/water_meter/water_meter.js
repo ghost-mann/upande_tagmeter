@@ -83,7 +83,7 @@ frappe.ui.form.on("Water Meter", {
 	},
 });
 
-const TALLY_LABEL = { ok: __("new reading"), duplicate: __("no new reading yet") };
+const TALLY_LABEL = { ok: __("new reading"), refreshed: __("refreshed, no newer reading yet") };
 
 function poll(frm) {
 	frappe.call({
@@ -99,18 +99,18 @@ function poll(frm) {
 	});
 }
 
-const POLL_INDICATOR = { ok: "green", duplicate: "blue" };
+const POLL_INDICATOR = { ok: "green", refreshed: "blue" };
 
-// "duplicate" is the normal answer between reports, not a failure: the SMP
+// "refreshed" is the normal answer between reports, not a failure: the SMP
 // only holds a meter's latest record, and meters send about once a day, so
-// every poll in between returns the record already stored. Say that in words.
+// every poll in between re-fetches the record already stored and rewrites it.
 function poll_message(res) {
 	const when = res.latest ? frappe.datetime.str_to_user(res.latest) : null;
 	switch (res.status) {
 		case "ok":
 			return __("New reading from {0}.", [when]);
-		case "duplicate":
-			return __("No new reading yet. The latest the SMP holds is from {0}, already stored. Meters report about once a day.", [when]);
+		case "refreshed":
+			return __("Refreshed the reading from {0} from the SMP. It has nothing newer yet; meters report about once a day.", [when]);
 		case "server_error":
 			return __("The SMP holds no reading for this meter yet.");
 		case "unknown_meter":

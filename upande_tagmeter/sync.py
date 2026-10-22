@@ -192,37 +192,34 @@ def sync_meter(meter_sn: str, client: TagMeterClient | None = None) -> dict:
 		return {"status": "no_device_time", "meter": meter_sn, "reading": None}
 
 	dedupe_key = f"{meter_sn}:{device_time.isoformat()}"
-	if frappe.db.exists("Meter Reading", {"dedupe_key": dedupe_key}):
+	existing = frappe.db.get_value("Meter Reading", {"dedupe_key": dedupe_key}, "name")
+	if existing:
 		# Expected on most polls: the SMP returns its latest record every time,
-		# and meters speak far less often than we ask.
-		_record_poll(meter, polled_at, "duplicate")
-		_apply_online(meter)
-		# `latest` lets the caller say "nothing new since <time>" -- a bare
-		# "duplicate" reads to an operator like the poll failed.
-		return {"status": "duplicate", "meter": meter_sn, "reading": None,
-		        "latest": device_time}
+		# and meters speak far less often than we ask. The stored reading is
+		# rewritten from this fetch rather than skipped, so a poll always leaves
+		# what the SMP holds right now. Updated in place, never deleted and
+		# re-inserted: the meter's last_reading and a valve command's
+		# confirming_reading link to it, and a confirmation must not lose its
+		# evidence because someone pressed Poll Now.
+		return _refresh_reading(meter, existing, data, device_time, polled_at)
 
 	reading = _insert_reading(meter, data, device_time, dedupe_key, polled_at)
 	if reading is None:
-		_record_poll(meter, polled_at, "duplicate")
-		return {"status": "duplicate", "meter": meter_sn, "reading": None}
+		# Lost an insert race with another worker; that row is this record.
+		existing = frappe.db.get_value("Meter Reading", {"dedupe_key": dedupe_key}, "name")
+		return _refresh_reading(meter, existing, data, device_time, polled_at)
 
 	_apply_reading_to_meter(meter, data, device_time, reading.name, polled_at)
 	return {"status": "ok", "meter": meter_sn, "reading": reading.name, "latest": device_time}
 
 
-def _insert_reading(meter, data, device_time, dedupe_key, polled_at):
-	is_first = not meter.last_reading
-	previous = None if is_first else meter.cumulative_flow_m3
+def _measured_values(data, polled_at):
+	"""What the SMP said in one record -- shared by insert and refresh so the
+	two cannot store a record differently."""
 	values = {
-		"doctype": "Meter Reading",
-		"water_meter": meter.name,
-		"device_time": device_time,
 		"received_at": polled_at,
 		"connection": data.get("connection"),
-		"dedupe_key": dedupe_key,
 		"cumulative_flow_m3": data.get("cumulative_flow_m3"),
-		"consumption_m3": consumption_delta(previous, data.get("cumulative_flow_m3")),
 		"remaining_balance_m3": data.get("remaining_balance_m3"),
 		"instant_flow_m3h": data.get("instant_flow_m3h"),
 		"temperature_c": data.get("temperature_c"),
@@ -237,6 +234,41 @@ def _insert_reading(meter, data, device_time, dedupe_key, polled_at):
 	}
 	for flag in FLAG_FIELDS:
 		values[flag] = 1 if data.get(flag) else 0
+	return values
+
+
+def _refresh_reading(meter, reading_name, data, device_time, polled_at):
+	"""Rewrite an already-stored record from a fresh fetch of it.
+
+	``consumption_m3`` is left alone: it is the difference from the reading
+	*before* this one, fixed when this one was first stored, and the same
+	record fetched again cannot change it.
+	"""
+	frappe.db.set_value("Meter Reading", reading_name, _measured_values(data, polled_at),
+	                    update_modified=True)
+	if meter.last_reading == reading_name:
+		# Still the newest: refresh the meter's current state from it too.
+		meter.last_seen = None  # lift the recency guard for this one record
+		_apply_reading_to_meter(meter, data, device_time, reading_name, polled_at)
+		meter.db_set("last_sync_outcome", "refreshed", update_modified=False)
+	else:
+		_record_poll(meter, polled_at, "refreshed")
+		_apply_online(meter)
+	return {"status": "refreshed", "meter": meter.name, "reading": reading_name,
+	        "latest": device_time}
+
+
+def _insert_reading(meter, data, device_time, dedupe_key, polled_at):
+	is_first = not meter.last_reading
+	previous = None if is_first else meter.cumulative_flow_m3
+	values = {
+		"doctype": "Meter Reading",
+		"water_meter": meter.name,
+		"device_time": device_time,
+		"dedupe_key": dedupe_key,
+		"consumption_m3": consumption_delta(previous, data.get("cumulative_flow_m3")),
+		**_measured_values(data, polled_at),
+	}
 
 	doc = frappe.get_doc(values)
 	try:

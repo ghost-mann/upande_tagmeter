@@ -1,4 +1,9 @@
-"""One decoded SMP reading. Immutable once written."""
+"""One decoded SMP reading. Never edited by hand.
+
+The only writer after insert is sync._refresh_reading, which rewrites a record
+from a fresh fetch of that same record from the SMP -- through db.set_value, so
+this validate never sees it.
+"""
 
 import frappe
 from frappe.model.document import Document

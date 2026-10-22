@@ -132,18 +132,52 @@ class TestSync(IntegrationTestCase):
 		first = sync.sync_meter(sn, client=client)
 		second = sync.sync_meter(sn, client=client)
 		self.assertEqual(first["status"], "ok")
-		self.assertEqual(second["status"], "duplicate")
-		self.assertIsNone(second["reading"])
+		self.assertEqual(second["status"], "refreshed")
+		self.assertEqual(second["reading"], first["reading"])
 		self.assertEqual(frappe.db.count("Meter Reading", {"water_meter": sn}), 1)
 
-	def test_a_duplicate_poll_still_records_that_we_polled(self):
+	def test_a_repeat_poll_still_records_that_we_polled(self):
 		sn = "68753500170906"
 		self._meter(sn)
 		when = datetime.now(timezone.utc) - timedelta(hours=2)
 		client = FakeClient((Outcome.OK, amr(when)), (Outcome.OK, amr(when)))
 		sync.sync_meter(sn, client=client)
 		sync.sync_meter(sn, client=client)
-		self.assertEqual(frappe.db.get_value("Water Meter", sn, "last_sync_outcome"), "duplicate")
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "last_sync_outcome"), "refreshed")
+
+	def test_a_repeat_poll_rewrites_the_reading_in_place_from_the_fresh_fetch(self):
+		"""Same record, fetched again: the stored reading takes the new values
+		and the new received time, and keeps its name so links survive."""
+		sn = "68753500170910"
+		self._meter(sn)
+		when = datetime.now(timezone.utc) - timedelta(hours=2)
+		stale, fresh = amr(when), amr(when)
+		fresh["temperature_c"] = 25.5
+		first = sync.sync_meter(sn, client=FakeClient((Outcome.OK, stale)))
+		received = frappe.db.get_value("Meter Reading", first["reading"], "received_at")
+
+		second = sync.sync_meter(sn, client=FakeClient((Outcome.OK, fresh)))
+		row = frappe.db.get_value("Meter Reading", first["reading"],
+		                          ["temperature_c", "received_at"], as_dict=True)
+		self.assertEqual(second["reading"], first["reading"])
+		self.assertEqual(row.temperature_c, 25.5)
+		self.assertGreaterEqual(row.received_at, received)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "temperature_c"), 25.5)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "last_reading"), first["reading"])
+
+	def test_refreshing_an_older_record_leaves_current_state_alone(self):
+		sn = "68753500170911"
+		self._meter(sn)
+		newer = datetime.now(timezone.utc) - timedelta(hours=1)
+		older = datetime.now(timezone.utc) - timedelta(hours=20)
+		client = FakeClient(
+			(Outcome.OK, amr(older, cumulative=10.0)),
+			(Outcome.OK, amr(newer, cumulative=50.0)),
+			(Outcome.OK, amr(older, cumulative=10.0)),
+		)
+		for _ in range(3):
+			sync.sync_meter(sn, client=client)
+		self.assertEqual(frappe.db.get_value("Water Meter", sn, "cumulative_flow_m3"), 50.0)
 
 	def test_an_older_record_does_not_overwrite_current_state(self):
 		sn = "68753500170907"

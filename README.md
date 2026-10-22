@@ -15,7 +15,9 @@ Upande's own integration account; customers only ever see this Frappe instance.
 - `vendor/` — Frappe-free SMP client: auth, single-flight token, error taxonomy,
   response parsing, status-byte decode.
 - `Water Meter` — registry plus denormalised current state, including `online`.
-- `Meter Reading` — one immutable record per SMP reading, deduped.
+- `Meter Reading` — one record per SMP reading, deduped on meter + device time.
+  Nobody can edit one by hand; re-polling the same record rewrites it from the
+  SMP's copy (`refreshed`), in place, so links to it survive.
 - `sync.py` — the polling sweep.
 - `setup/import_meters.py` — seed the fleet, and audit it against the SMP.
 
