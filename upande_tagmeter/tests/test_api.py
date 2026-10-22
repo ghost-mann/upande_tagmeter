@@ -57,10 +57,10 @@ class TestFlowSeries(IntegrationTestCase):
 		sn = self._meter("68753500172003")
 		now = now_datetime()
 		self._reading(sn, now - timedelta(hours=5),
-		              hourly=[{"timestamp": "2026-09-01T01:00:00+00:00", "delta": 9}])
+		              hourly=[{"timestamp": "2026-09-01T01:00:00+00:00", "delta": -9}])
 		self._reading(sn, now - timedelta(hours=1),
-		              hourly=[{"timestamp": "2026-09-02T01:00:00+00:00", "delta": 3},
-		                      {"timestamp": "2026-09-02T02:00:00+00:00", "delta": 4}])
+		              hourly=[{"timestamp": "2026-09-02T01:00:00+00:00", "delta": -3},
+		                      {"timestamp": "2026-09-02T02:00:00+00:00", "delta": -4}])
 		out = api.flow_series(sn)
 		self.assertEqual([h["v"] for h in out["hourly"]], [3, 4])
 

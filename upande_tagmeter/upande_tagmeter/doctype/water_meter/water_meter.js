@@ -41,7 +41,7 @@ frappe.listview_settings["Water Meter"] = {
 				callback(r) {
 					const res = r.message || {};
 					const tally = Object.entries(res.tally || {})
-						.map(([k, v]) => `${v} ${k}`)
+						.map(([k, v]) => `${v} ${TALLY_LABEL[k] || k}`)
 						.join(", ");
 					frappe.show_alert({
 						message: __("Polled {0}: {1}", [res.polled, tally || __("no results")]),
@@ -77,6 +77,8 @@ frappe.ui.form.on("Water Meter", {
 	},
 });
 
+const TALLY_LABEL = { ok: __("new reading"), duplicate: __("no new reading yet") };
+
 function poll(frm) {
 	frappe.call({
 		method: "upande_tagmeter.sync.poll_meter",
@@ -84,13 +86,34 @@ function poll(frm) {
 		freeze: true,
 		freeze_message: __("Asking the SMP..."),
 		callback(r) {
-			frappe.show_alert({
-				message: __("Poll result: {0}", [(r.message || {}).status]),
-				indicator: "blue",
-			});
+			const res = r.message || {};
+			frappe.show_alert({ message: poll_message(res), indicator: POLL_INDICATOR[res.status] || "orange" }, 10);
 			frm.reload_doc();
 		},
 	});
+}
+
+const POLL_INDICATOR = { ok: "green", duplicate: "blue" };
+
+// "duplicate" is the normal answer between reports, not a failure: the SMP
+// only holds a meter's latest record, and meters send about once a day, so
+// every poll in between returns the record already stored. Say that in words.
+function poll_message(res) {
+	const when = res.latest ? frappe.datetime.str_to_user(res.latest) : null;
+	switch (res.status) {
+		case "ok":
+			return __("New reading from {0}.", [when]);
+		case "duplicate":
+			return __("No new reading yet. The latest the SMP holds is from {0}, already stored. Meters report about once a day.", [when]);
+		case "server_error":
+			return __("The SMP holds no reading for this meter yet.");
+		case "unknown_meter":
+			return __("The SMP does not recognise this serial.");
+		case "no_amr_record":
+			return __("The SMP knows this meter but has no reading for it.");
+		default:
+			return __("Poll result: {0}", [res.status]);
+	}
 }
 
 // The switch is a view of `valve_reported` -- what the meter actually said --

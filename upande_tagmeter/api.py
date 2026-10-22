@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
+from upande_tagmeter.consumption import hourly_volume
+
 
 def _require_login():
 	if frappe.session.user == "Guest":
@@ -55,8 +57,10 @@ def flow_series(meter_sn: str, start: str | None = None, end: str | None = None)
 	)
 
 	# The hourly series comes off the newest reading in range: the SMP ships a
-	# rolling 24-hour window with each AMR record, where `delta` is that hour's
-	# volume -- which is the flow rate for the hour, already differenced.
+	# rolling 24-hour window with each AMR record. The stored `delta` is the
+	# vendor's NextHourDifference, which is negative when water flows -- see
+	# consumption.hourly_volume. Converted here rather than at parse time so
+	# readings already stored are read correctly too.
 	hourly = []
 	hourly_from = None
 	if rows:
@@ -65,7 +69,7 @@ def flow_series(meter_sn: str, start: str | None = None, end: str | None = None)
 		try:
 			for row in json.loads(newest.hourly_data or "[]"):
 				if row.get("timestamp"):
-					hourly.append({"t": row["timestamp"], "v": row.get("delta") or 0})
+					hourly.append({"t": row["timestamp"], "v": hourly_volume(row.get("delta"))})
 		except (ValueError, TypeError):
 			hourly = []
 

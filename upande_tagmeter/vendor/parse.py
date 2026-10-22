@@ -157,6 +157,8 @@ def parse_hourly(rows: Any, tz_name: str = METER_TZ) -> list[dict[str, Any]]:
 		parsed.append({
 			"timestamp": stamp.isoformat() if stamp else None,
 			"total_counter": _f(row.get("TotalCounter")),
+			# Stored raw. It is this hour's counter minus the next, so negative
+			# while water flows -- read it through consumption.hourly_volume.
 			"delta": _f(row.get("NextHourDifference")),
 		})
 	return parsed

@@ -155,8 +155,10 @@ volume as stat tiles, the meter's own hourly rate as an area chart, and
 consumption per reading as bars. Both charts carry a crosshair and tooltip.
 Period totals sum `consumption_m3` rather than differencing two lifetime
 counters, so a meter replacement or counter reset cannot produce a negative.
-The hourly series is the SMP's rolling 24-hour window, where `delta` is that
-hour's volume — already differenced by the meter.
+The hourly series is the SMP's rolling 24-hour window. Its `delta`
+(`NextHourDifference`) is **not** the hour's volume: it is this hour's counter
+minus the next, so it is negative while water flows. `consumption.hourly_volume`
+negates it, which is checked against a live meter in `tests/test_consumption.py`.
 
 **Valve control is on the dashboard**, in the fleet detail panel and the Flow
 view. It calls `valve.set_valve`, the same entry point the desk form uses, so

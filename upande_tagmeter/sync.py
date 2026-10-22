@@ -197,7 +197,10 @@ def sync_meter(meter_sn: str, client: TagMeterClient | None = None) -> dict:
 		# and meters speak far less often than we ask.
 		_record_poll(meter, polled_at, "duplicate")
 		_apply_online(meter)
-		return {"status": "duplicate", "meter": meter_sn, "reading": None}
+		# `latest` lets the caller say "nothing new since <time>" -- a bare
+		# "duplicate" reads to an operator like the poll failed.
+		return {"status": "duplicate", "meter": meter_sn, "reading": None,
+		        "latest": device_time}
 
 	reading = _insert_reading(meter, data, device_time, dedupe_key, polled_at)
 	if reading is None:
@@ -205,7 +208,7 @@ def sync_meter(meter_sn: str, client: TagMeterClient | None = None) -> dict:
 		return {"status": "duplicate", "meter": meter_sn, "reading": None}
 
 	_apply_reading_to_meter(meter, data, device_time, reading.name, polled_at)
-	return {"status": "ok", "meter": meter_sn, "reading": reading.name}
+	return {"status": "ok", "meter": meter_sn, "reading": reading.name, "latest": device_time}
 
 
 def _insert_reading(meter, data, device_time, dedupe_key, polled_at):
