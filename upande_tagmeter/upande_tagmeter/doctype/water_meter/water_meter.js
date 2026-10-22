@@ -122,14 +122,19 @@ function poll_message(res) {
 	}
 }
 
-// The switch is a view of `valve_reported` -- what the meter actually said --
-// never of the request. A toggle that snapped to the requested position would
-// imply the valve had moved when only the request had been accepted, so while a
-// command is in flight it shows the requested position and says so.
+// A meter only speaks when it chooses to, so the form cannot show where the
+// valve is *now*. It shows the three things that are known, separately:
 //
-// It stays USABLE though: the server supersedes a pending command rather than
-// refusing the next one, as the vendor's own console does, so disabling the
-// switch here would enforce a lock the server no longer has.
+//   1. what the meter last reported, and when;
+//   2. what was asked for, whether the SMP accepted it, and when it gives up;
+//   3. when the meter should next report on its own.
+//
+// Collapsing those into one word was the defect: with an open in flight the
+// form said "Closed" -- true of the last report, wrong about the valve.
+//
+// The switch shows the requested position while a command is pending, marked
+// "requested", and stays usable: the server supersedes a pending command
+// rather than refusing the next one, as the vendor's own console does.
 function render_valve(frm) {
 	const wrapper = frm.get_field("valve_toggle_html").$wrapper;
 
@@ -144,34 +149,57 @@ function render_valve(frm) {
 		`);
 		return;
 	}
-	const reported = frm.doc.valve_reported || "Unknown";
-	const desired = frm.doc.valve_desired || "Unknown";
-	const in_flight = frm.doc.valve_in_flight;
+	frappe
+		.call({ method: "upande_tagmeter.valve.valve_status", args: { water_meter: frm.doc.name } })
+		.then((r) => draw_valve(frm, wrapper, r.message || {}));
+}
 
-	const shown = in_flight && desired !== "Unknown" ? desired : reported;
+const when = (dt) => (dt ? frappe.datetime.str_to_user(dt) : null);
+const cmd_link = (name) =>
+	`<a href="/app/meter-command/${encodeURIComponent(name)}">${frappe.utils.escape_html(name)}</a>`;
+
+function draw_valve(frm, wrapper, st) {
+	const reported = st.reported || "Unknown";
+	const pending = st.pending;
+	const shown = pending ? pending.requested_state : reported;
 	const is_open = shown === "Open";
 	const known = shown === "Open" || shown === "Closed";
 	const disabled = !frappe.model.can_write("Meter Command");
+	const due = st.next_report_due
+		? __("next scheduled report due about {0}", [when(st.next_report_due)])
+		: __("no steady reporting schedule to estimate its next report from");
 
-	let note = "";
-	if (in_flight) {
-		note = `<div class="tm-note tm-pending">${__(
-			"Command {0} is in flight. An actuated meter answers in seconds and its reading reaches the SMP about two minutes later, so this usually confirms within three minutes.",
-			[`<a href="/app/meter-command/${encodeURIComponent(in_flight)}">${frappe.utils.escape_html(in_flight)}</a>`],
-		)}</div>`;
-	} else if (desired !== "Unknown" && desired !== reported) {
-		note = `<div class="tm-note tm-disagree">${__(
-			"Requested <b>{0}</b>, meter last reported <b>{1}</b>. Nothing is in flight, so the meter is not doing what was asked.",
-			[desired, reported],
-		)}</div>`;
-	} else if (!known) {
-		note = `<div class="tm-note tm-unknown">${__(
-			"The meter has not reported a valve state yet.",
-		)}</div>`;
+	const facts = [
+		`<div><span class="tm-k">${__("Meter last reported")}</span> <b>${__(reported)}</b>${
+			st.reported_at ? ` · ${when(st.reported_at)}` : ` · ${__("never")}`
+		}</div>`,
+	];
+	let note;
+	if (pending) {
+		const accepted = pending.accepted
+			? __("accepted by the SMP at {0}", [when(pending.sent_at)])
+			: pending.sent_at
+				? __("not accepted by the SMP yet (last try {0}: {1}); the watchdog retries it", [
+						when(pending.sent_at), frappe.utils.escape_html(pending.last_outcome || "?")])
+				: __("not sent yet");
+		facts.push(`<div><span class="tm-k">${__("Requested")}</span> <b>${__(pending.requested_state)}</b> · ${cmd_link(pending.name)} · ${accepted}</div>`);
+		const how = pending.requested_state === "Open"
+			? __("Meters do not report an open straight away; it shows at the meter's {0}. Until then the valve may well be open already.", [due])
+			: __("A close is normally reported within about two minutes.");
+		note = `<div class="tm-note tm-pending">${how} ${__("Gives up at {0}.", [when(pending.deadline)])}</div>`;
 	} else {
-		note = `<div class="tm-note tm-ok">${__("Meter reports the valve is {0}.", [
-			__(reported).toLowerCase(),
-		])}</div>`;
+		facts.push(`<div><span class="tm-k">${__("Next report")}</span> ${due}</div>`);
+		const last = st.last_command;
+		if (last && last.status !== "Confirmed" && last.requested_state !== reported) {
+			note = `<div class="tm-note tm-disagree">${__(
+				"Last request {0} for <b>{1}</b> ended {2}; the meter still reports <b>{3}</b>.",
+				[cmd_link(last.name), __(last.requested_state), __(last.status).toLowerCase(), __(reported)],
+			)}</div>`;
+		} else if (!known) {
+			note = `<div class="tm-note tm-unknown">${__("The meter has not reported a valve state yet.")}</div>`;
+		} else {
+			note = `<div class="tm-note tm-ok">${__("Nothing in flight. The valve is {0} as of the last report.", [__(reported).toLowerCase()])}</div>`;
+		}
 	}
 
 	wrapper.html(`
@@ -182,33 +210,32 @@ function render_valve(frm) {
 				border: 1px solid var(--border-color); flex: none; }
 			.tm-switch[data-on="1"] { background: var(--green-500); }
 			.tm-switch[data-known="0"] { background: var(--gray-200); }
+			.tm-switch[data-pending="1"] { background-image: repeating-linear-gradient(45deg,
+				transparent 0 6px, rgba(255,255,255,.35) 6px 12px); }
 			.tm-switch[aria-disabled="true"] { cursor: not-allowed; opacity: .65; }
 			.tm-knob { position: absolute; top: 3px; left: 3px; width: 26px; height: 26px;
 				border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.28);
 				transition: left .18s ease; }
 			.tm-switch[data-on="1"] .tm-knob { left: 61px; }
 			.tm-state { font-weight: 600; }
+			.tm-facts { font-size: var(--text-sm); line-height: 1.7; }
+			.tm-k { color: var(--text-muted); display: inline-block; min-width: 130px; }
 			.tm-note { font-size: var(--text-sm); color: var(--text-muted); margin-top: 8px; }
 			.tm-pending { color: var(--orange-600); }
 			.tm-disagree { color: var(--red-600); }
 		</style>
 		<div class="tm-valve">
 			<div class="tm-switch" data-on="${is_open ? 1 : 0}" data-known="${known ? 1 : 0}"
+				data-pending="${pending ? 1 : 0}"
 				aria-disabled="${disabled}" role="switch" aria-checked="${is_open}"
 				title="${disabled ? __("You cannot issue commands") : __("Click to change")}">
 				<div class="tm-knob"></div>
 			</div>
-			<div>
-				<div class="tm-state">${frappe.utils.escape_html(__(shown))}${
-					in_flight ? ` <span class="text-muted">(${__("requested")})</span>` : ""
-				}</div>
-				<div class="text-muted" style="font-size: var(--text-sm)">${
-					frm.doc.last_seen
-						? __("as of {0}", [frappe.datetime.str_to_user(frm.doc.last_seen)])
-						: __("never reported")
-				}</div>
-			</div>
+			<div class="tm-state">${frappe.utils.escape_html(__(shown))}${
+				pending ? ` <span class="text-muted">(${__("requested, not yet reported")})</span>` : ""
+			}</div>
 		</div>
+		<div class="tm-facts" style="margin-top:8px">${facts.join("")}</div>
 		${note}
 	`);
 
@@ -223,7 +250,7 @@ function set_valve(frm, action) {
 	const verb = action === "open" ? __("open") : __("close");
 	frappe.confirm(
 		__(
-			"Ask meter {0} to {1} its valve?<br><br>The SMP accepts this immediately, but that only means it was <b>queued</b> — not that the valve moved. Confirmation arrives with the meter's next reading, usually within about three minutes.",
+			"Ask meter {0} to {1} its valve?<br><br>The SMP accepts this immediately, but that only means it was <b>queued</b> — not that the valve moved. Confirmation arrives with the meter's next reading: within minutes for a close, but an open only shows at the meter's next scheduled report, which can be hours away.",
 			[frm.doc.name, verb],
 		),
 		() => {

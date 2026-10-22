@@ -33,6 +33,7 @@
   "valve_sb",
   "valve_html",
   "valve_timeout_minutes",
+  "valve_open_timeout_hours",
   "cb_valve",
   "duplicate_window_seconds",
   "effective_sb",
@@ -42,7 +43,7 @@
   {
    "fieldname": "intro_html",
    "fieldtype": "HTML",
-   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">Every value here resolves in three steps: <code>site_config.json</code> first, then this page, then the built-in default. A server-side config always wins, so a site already configured that way is unaffected by anything set here.<br>Leave a field <b>blank</b> — or <b>0</b>, which Frappe stores for an untouched number — to use the built-in default. Each description gives that default and why it is what it is. <b>Effective Configuration</b> at the bottom shows what is actually in force and where each value came from.</div>"
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">Every value here resolves in three steps: <code>site_config.json</code> first, then this page, then the built-in default. A server-side config always wins, so a site already configured that way is unaffected by anything set here.<br>Leave a field <b>blank</b> \u2014 or <b>0</b>, which Frappe stores for an untouched number \u2014 to use the built-in default. Each description gives that default and why it is what it is. <b>Effective Configuration</b> at the bottom shows what is actually in force and where each value came from.</div>"
   },
   {
    "fieldname": "credentials_sb",
@@ -84,7 +85,7 @@
   {
    "fieldname": "pacing_html",
    "fieldtype": "HTML",
-   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">The SMP publishes no rate limit and issues one token at a time — a new login revokes the previous one. These four values are what keep a fleet sweep from tripping either.</div>"
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">The SMP publishes no rate limit and issues one token at a time \u2014 a new login revokes the previous one. These four values are what keep a fleet sweep from tripping either.</div>"
   },
   {
    "fieldname": "min_interval",
@@ -92,7 +93,7 @@
    "label": "Minimum seconds between calls",
    "precision": "3",
    "non_negative": 1,
-   "description": "Default 0.25, which paces calls at four a second. Raise it if the SMP starts refusing; it costs only sweep duration. 0 means use the default, not “no throttle” — the vendor publishes no rate limit, so an unthrottled sweep is not something to switch on by leaving a field empty."
+   "description": "Default 0.25, which paces calls at four a second. Raise it if the SMP starts refusing; it costs only sweep duration. 0 means use the default, not \u201cno throttle\u201d \u2014 the vendor publishes no rate limit, so an unthrottled sweep is not something to switch on by leaving a field empty."
   },
   {
    "fieldname": "request_timeout",
@@ -110,7 +111,7 @@
    "fieldtype": "Int",
    "label": "Attempts per call",
    "non_negative": 1,
-   "description": "Default 3. Counts the first try, so 3 means two retries. Only transport errors and 5xx are retried — a refusal from the SMP is never repeated."
+   "description": "Default 3. Counts the first try, so 3 means two retries. Only transport errors and 5xx are retried \u2014 a refusal from the SMP is never repeated."
   },
   {
    "fieldname": "retry_backoff",
@@ -134,7 +135,7 @@
   {
    "fieldname": "staleness_html",
    "fieldtype": "HTML",
-   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">A meter is not broken because it is quiet — it is quiet most of the time by design. These decide how long silence has to last before it means something, and the two multipliers turn one cycle length into the <b>Late</b> and <b>Silent</b> thresholds so they move together.</div>"
+   "options": "<div class=\"text-muted\" style=\"font-size:var(--text-sm)\">A meter is not broken because it is quiet \u2014 it is quiet most of the time by design. These decide how long silence has to last before it means something, and the two multipliers turn one cycle length into the <b>Late</b> and <b>Silent</b> thresholds so they move together.</div>"
   },
   {
    "fieldname": "expected_cycle_hours",
@@ -147,10 +148,10 @@
   {
    "fieldname": "late_multiplier",
    "fieldtype": "Float",
-   "label": "Late after (× cycle)",
+   "label": "Late after (\u00d7 cycle)",
    "precision": "2",
    "non_negative": 1,
-   "description": "Default 1.25 — one missed report plus a quarter-cycle of grace for join jitter."
+   "description": "Default 1.25 \u2014 one missed report plus a quarter-cycle of grace for join jitter."
   },
   {
    "fieldname": "cb_stale",
@@ -159,10 +160,10 @@
   {
    "fieldname": "silent_multiplier",
    "fieldtype": "Float",
-   "label": "Silent after (× cycle)",
+   "label": "Silent after (\u00d7 cycle)",
    "precision": "2",
    "non_negative": 1,
-   "description": "Default 3 — three missed reports. Silent means the gateway is healthy and the meter still is not talking, which is the state that justifies sending someone out."
+   "description": "Default 3 \u2014 three missed reports. Silent means the gateway is healthy and the meter still is not talking, which is the state that justifies sending someone out."
   },
   {
    "fieldname": "offline_after_hours",
@@ -170,7 +171,7 @@
    "label": "Offline after (hours)",
    "precision": "2",
    "non_negative": 1,
-   "description": "Default 30. Drives the Online flag, independently of the multipliers above. Set to match Late (cycle × late multiplier) so Online flips exactly where Late begins; a 6-hour threshold would mark most of the fleet offline every day."
+   "description": "Default 30. Drives the Online flag, independently of the multipliers above. Set to match Late (cycle \u00d7 late multiplier) so Online flips exactly where Late begins; a 6-hour threshold would mark most of the fleet offline every day."
   },
   {
    "fieldname": "thresholds_html",
@@ -203,10 +204,18 @@
   {
    "fieldname": "valve_timeout_minutes",
    "fieldtype": "Float",
-   "label": "Command expiry (minutes)",
+   "label": "Close command expiry (minutes)",
    "precision": "2",
    "non_negative": 1,
-   "description": "Default 10. How long a queued command waits for confirmation before it is marked Expired. Raising this to hours does not make a lost command arrive — it only keeps the meter showing a request that is never coming."
+   "description": "Default 10. How long a queued <b>close</b> waits for confirmation before it is marked Expired. A meter reports a close within about two minutes, so raising this does not make a lost command arrive \u2014 it only keeps the meter showing a request that is never coming."
+  },
+  {
+   "fieldname": "valve_open_timeout_hours",
+   "fieldtype": "Float",
+   "label": "Open command expiry (hours)",
+   "precision": "2",
+   "non_negative": 1,
+   "description": "Default 14. How long a queued <b>open</b> waits. Meters do not report an open straight away \u2014 68753500170871 only showed Open at its next scheduled report, about 12 hours apart \u2014 so this covers one cycle plus grace. Set it from the meters' real reporting interval."
   },
   {
    "fieldname": "cb_valve",
@@ -235,7 +244,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-14 16:30:00.000000",
+ "modified": "2026-10-22 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "upande_tagmeter",
  "name": "TagMeter Settings",

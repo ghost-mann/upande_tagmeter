@@ -50,6 +50,12 @@ SPEC = {
 	"gateway_stale_after_hours": ("gateway_stale_after_hours",   6.0,   float),
 
 	"valve_timeout_minutes":    ("tagmeter_valve_timeout_minutes", 10.0, float),
+	# Opens are not answered like closes. Measured on 68753500170871: every
+	# close (MC-49, 50, 52) confirmed within ~2 minutes, every open (MC-51,
+	# 53, 54) drew no uplink at all and only showed Open at the meter's next
+	# scheduled report, ~12h apart (01:02 / 13:02 EAT). So an open waits one
+	# scheduled cycle plus grace before it is called Expired.
+	"valve_open_timeout_hours": ("tagmeter_valve_open_timeout_hours", 14.0, float),
 	"duplicate_window_seconds": ("tagmeter_duplicate_window_seconds", 30, int),
 }
 
@@ -178,6 +184,7 @@ def thresholds() -> dict:
 		"offline_after_hours": get("offline_after_hours"),
 		"gateway_stale_after_hours": get("gateway_stale_after_hours"),
 		"valve_timeout_minutes": get("valve_timeout_minutes"),
+		"valve_open_timeout_hours": get("valve_open_timeout_hours"),
 	}
 
 

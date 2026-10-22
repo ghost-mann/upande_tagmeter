@@ -910,7 +910,9 @@ function watchCommand(sn, act, command) {
   const tick = async () => {
     if (Date.now() - started > WATCH_FOR_MS) {
       stopWatching(sn);
-      paint("Timed out", "No confirming reading yet. The watchdog will expire it; reload to see where it landed.");
+      paint("Timed out", act === "open"
+        ? "No report yet — normal for an open: it shows at the meter's next scheduled report, hours away. The command stays queued until then."
+        : "No confirming reading yet. The watchdog will expire it; reload to see where it landed.");
       return;
     }
     try {
@@ -1137,11 +1139,13 @@ function valveUI(elId, m) {
   const flight = m.in_flight;
   const reachable = m.online;
   el.innerHTML = `<div class="valvebar">
-      <button class="btn btn--open" data-act="open" ${flight || !CAN_COMMAND ? "disabled" : ""}>Open valve</button>
-      <button class="btn btn--close" data-act="close" ${flight || !CAN_COMMAND ? "disabled" : ""}>Close valve</button>
+      <button class="btn btn--open" data-act="open" ${(flight && m.valve_desired === "Open") || !CAN_COMMAND ? "disabled" : ""}>Open valve</button>
+      <button class="btn btn--close" data-act="close" ${(flight && m.valve_desired === "Closed") || !CAN_COMMAND ? "disabled" : ""}>Close valve</button>
       <span class="note">${
         !CAN_COMMAND ? "You do not have permission to issue commands."
-        : flight ? `Command <b>${esc(flight)}</b> is already in flight. Two competing downlinks make the outcome ambiguous, so a second is refused until this one confirms or expires.`
+        : flight ? (m.valve_desired === "Open"
+            ? `<b>Open</b> requested (${esc(flight)}) — the meter last reported <b>${esc(m.valve || "Unknown")}</b>. Meters do not report an open straight away; it shows at the next scheduled report, which can be hours away, and the valve may already be open.`
+            : `Command <b>${esc(flight)}</b> is in flight — the meter last reported <b>${esc(m.valve || "Unknown")}</b>. A close is normally reported within a couple of minutes.`)
         : reachable ? "The meter answers only in scheduled ping slots, so a command can take hours to confirm."
         : "This meter has not reported recently, so a command will sit queued until it comes back."
       }</span></div>`;

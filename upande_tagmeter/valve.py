@@ -44,6 +44,20 @@ VALVE_TIMEOUT_MINUTES = settings.SPEC["valve_timeout_minutes"][1]
 # A second command for the SAME state this soon is a double-click, not intent.
 # Returning the existing command keeps it idempotent without a second downlink.
 DUPLICATE_WINDOW_SECONDS = settings.SPEC["duplicate_window_seconds"][1]
+VALVE_OPEN_TIMEOUT_HOURS = settings.SPEC["valve_open_timeout_hours"][1]
+
+
+def timeout_minutes(requested_state: str | None) -> float:
+	"""How long a command may wait for a reading that proves it.
+
+	Different for the two directions because the meters answer them
+	differently: a close is reported within minutes, an open only at the next
+	scheduled report. One timeout for both expired every real open after ten
+	minutes, while the valve sat open and the screen said Closed.
+	"""
+	if requested_state == "Open":
+		return settings.get("valve_open_timeout_hours") * 60
+	return settings.get("valve_timeout_minutes")
 
 ACTIONS = {
 	"open": {"command_type": "valve_open", "vendor": "Open", "requested_state": "Open"},
@@ -119,7 +133,7 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 			f"arrived."
 		))
 
-	minutes = float(expiry_hours * 60) if expiry_hours else settings.get("valve_timeout_minutes")
+	minutes = float(expiry_hours * 60) if expiry_hours else timeout_minutes(spec["requested_state"])
 	command = frappe.get_doc({
 		"doctype": "Meter Command",
 		"water_meter": meter.name,
@@ -198,13 +212,18 @@ def confirm_from_reading(water_meter: str, reading_name: str, valve_state: str, 
 	queued = frappe.get_all(
 		"Meter Command",
 		filters={"water_meter": water_meter, "status": "Queued"},
-		fields=["name", "requested_state", "enqueued_at"],
+		fields=["name", "requested_state", "enqueued_at", "creation"],
 		order_by="creation asc",
 	)
+	# Every matching request is settled, not only the oldest: two opens sent
+	# back to back are both satisfied by one reading showing Open, and leaving
+	# the second Queued would keep the meter "in flight" for nothing.
+	confirmed = []
 	for row in queued:
 		if row.requested_state != valve_state:
 			continue
-		if row.enqueued_at and device_time and device_time <= row.enqueued_at:
+		sent = row.enqueued_at or row.creation
+		if sent and device_time and device_time <= sent:
 			continue
 		command = frappe.get_doc("Meter Command", row.name)
 		command.db_set({
@@ -212,8 +231,8 @@ def confirm_from_reading(water_meter: str, reading_name: str, valve_state: str, 
 			"confirming_reading": reading_name,
 		}, update_modified=False)
 		_close_out(command, "Confirmed")
-		return command.name
-	return None
+		confirmed.append(command.name)
+	return confirmed[0] if confirmed else None
 
 
 @frappe.whitelist()
@@ -286,12 +305,93 @@ def check(water_meter: str) -> dict:
 	}
 
 
+@frappe.whitelist()
+def valve_status(water_meter: str) -> dict:
+	"""Everything known about a meter's valve, kept as separate facts.
+
+	A meter only speaks when it chooses to, so nothing can know its valve
+	position *now*. What is known is what it last reported and when, what was
+	asked for and whether the SMP took it, and when it should next speak. The
+	form shows all three rather than collapsing them into one word that is
+	wrong whenever a command is in flight.
+
+	Reads the database only -- no SMP call -- so the form can ask on every load.
+	"""
+	meter = frappe.get_doc("Water Meter", water_meter)
+	pending = frappe.get_all(
+		"Meter Command", filters={"water_meter": water_meter, "status": "Queued"},
+		fields=["name", "requested_state", "enqueued_at", "creation", "expires_at",
+		        "last_attempt_at", "last_outcome", "vendor_message", "attempts"],
+		order_by="creation desc", limit_page_length=1,
+	)
+	pending = pending[0] if pending else None
+	if pending:
+		pending.sent_at = pending.last_attempt_at
+		pending.accepted = pending.last_outcome == Outcome.OK.value
+		pending.deadline = _deadline(pending)
+
+	last = frappe.get_all(
+		"Meter Command", filters={"water_meter": water_meter, "status": ["!=", "Queued"]},
+		fields=["name", "requested_state", "status", "modified", "confirming_reading"],
+		order_by="creation desc", limit_page_length=1,
+	)
+	return {
+		"meter": meter.name,
+		"reported": meter.valve_reported or "Unknown",
+		"reported_at": meter.last_seen,
+		"pending": pending,
+		"last_command": last[0] if last else None,
+		"next_report_due": next_report_due(meter.name),
+	}
+
+
+def next_report_due(water_meter: str, now=None):
+	"""Roughly when this meter will next report on its own, or None.
+
+	The median gap between its recent readings, ignoring gaps under two hours
+	(those are answers to commands, not the schedule), projected forward from
+	the last reading until it lands in the future. An estimate, and labelled as
+	one wherever it is shown.
+	"""
+	times = frappe.get_all(
+		"Meter Reading", filters={"water_meter": water_meter},
+		pluck="device_time", order_by="device_time desc", limit_page_length=15,
+	)
+	times = sorted(t for t in times if t)
+	gaps = sorted(
+		(b - a).total_seconds() for a, b in zip(times, times[1:])
+		if (b - a).total_seconds() >= 2 * 3600
+	)
+	if not gaps:
+		return None
+	gap = gaps[len(gaps) // 2]
+	if gap > 48 * 3600:
+		return None  # no steady schedule to project from -- outages, not cadence
+	now = now or now_datetime()
+	due = times[-1]
+	while due <= now:
+		due = add_to_date(due, seconds=gap)
+	return due
+
+
 EXPIRY_REASON = (
 	"The meter never reported the requested state before the command expired. "
 	"An actuated meter answers within seconds and its uplink reaches the SMP "
 	"about two minutes later, so passing the timeout means the meter is not "
 	"reachable on the SMP's network server, or has stopped transmitting."
 )
+
+
+OPEN_EXPIRY_REASON = (
+	"No report showing the valve Open arrived before the command expired. Opens are "
+	"not answered straight away: the meter only reports the new state at its next "
+	"scheduled report, so this window covers one full cycle. Passing it means the "
+	"meter missed that report, or did not act on the downlink."
+)
+
+
+def _expiry_reason(requested_state):
+	return OPEN_EXPIRY_REASON if requested_state == "Open" else EXPIRY_REASON
 
 
 def _deadline(row):
@@ -301,7 +401,7 @@ def _deadline(row):
 	rows saved before that guard still exist."""
 	if row.expires_at:
 		return row.expires_at
-	return add_to_date(row.creation, minutes=settings.get("valve_timeout_minutes"))
+	return add_to_date(row.creation, minutes=timeout_minutes(row.get("requested_state")))
 
 
 def _expire_overdue() -> list[str]:
@@ -310,11 +410,12 @@ def _expire_overdue() -> list[str]:
 	ten-minute timeout."""
 	expired = []
 	for row in frappe.get_all(
-		"Meter Command", filters={"status": "Queued"}, fields=["name", "expires_at", "creation"],
+		"Meter Command", filters={"status": "Queued"},
+		fields=["name", "expires_at", "creation", "requested_state"],
 	):
 		if now_datetime() > _deadline(row):
 			_close_out(frappe.get_doc("Meter Command", row.name), "Expired",
-			           failure_reason=EXPIRY_REASON)
+			           failure_reason=_expiry_reason(row.requested_state))
 			expired.append(row.name)
 	return expired
 
@@ -377,11 +478,12 @@ def watchdog() -> dict:
 	failures = []
 	for row in frappe.get_all(
 		"Meter Command", filters={"status": "Queued"},
-		fields=["name", "attempts", "max_attempts", "expires_at", "last_outcome", "creation"],
+		fields=["name", "attempts", "max_attempts", "expires_at", "last_outcome", "creation",
+		        "requested_state"],
 	):
 		command = frappe.get_doc("Meter Command", row.name)
 		if now_datetime() > _deadline(row):
-			_close_out(command, "Expired", failure_reason=EXPIRY_REASON)
+			_close_out(command, "Expired", failure_reason=_expiry_reason(row.requested_state))
 			expired += 1
 			continue
 

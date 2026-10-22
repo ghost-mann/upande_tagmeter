@@ -457,3 +457,64 @@ class TestValve(IntegrationTestCase):
 			valve.watchdog()
 		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Expired")
 		self.assertEqual(len(client.sent), 1)  # expired, not re-sent
+
+    # ── opens wait for the scheduled report ─────────────────────────────────
+
+	def test_an_open_waits_a_reporting_cycle_and_a_close_minutes(self):
+		"""68753500170871: closes were reported in ~2 minutes, opens only at the
+		next scheduled report. One short timeout expired every real open."""
+		sn = "68753500171033"
+		self._meter(sn)
+		client = FakeClient(OK, OK)
+		with patch.object(valve, "get_client", return_value=client):
+			opened = valve.set_valve(sn, "open")
+		command = frappe.get_doc("Meter Command", opened["command"])
+		hours = (command.expires_at - command.enqueued_at).total_seconds() / 3600
+		self.assertAlmostEqual(hours, valve.VALVE_OPEN_TIMEOUT_HOURS, delta=0.05)
+		with patch.object(valve, "get_client", return_value=client):
+			closed = valve.set_valve(sn, "close")
+		command = frappe.get_doc("Meter Command", closed["command"])
+		minutes = (command.expires_at - command.enqueued_at).total_seconds() / 60
+		self.assertAlmostEqual(minutes, valve.VALVE_TIMEOUT_MINUTES, delta=1)
+		valve.release(sn)
+
+	def test_one_reading_confirms_every_matching_request(self):
+		sn = "68753500171034"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "open")
+		# A second open saved the old way, straight onto the table.
+		twin = frappe.copy_doc(frappe.get_doc("Meter Command", res["command"]))
+		twin.insert(ignore_permissions=True)
+		later = datetime.now(timezone.utc) + timedelta(minutes=5)
+		sync.sync_meter(sn, client=FakeClient(reads=[(Outcome.OK, amr(later, valve_state="Open"))]))
+		for name in (res["command"], twin.name):
+			self.assertEqual(frappe.db.get_value("Meter Command", name, "status"), "Confirmed")
+
+	def test_valve_status_keeps_reported_and_requested_apart(self):
+		sn = "68753500171035"
+		meter = self._meter(sn)
+		meter.db_set("valve_reported", "Closed", update_modified=False)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "open")
+		st = valve.valve_status(sn)
+		self.assertEqual(st["reported"], "Closed")
+		self.assertEqual(st["pending"]["name"], res["command"])
+		self.assertEqual(st["pending"]["requested_state"], "Open")
+		self.assertTrue(st["pending"]["accepted"])
+		valve.release(sn)
+
+	def test_next_report_is_projected_from_the_schedule_not_command_replies(self):
+		sn = "68753500171036"
+		self._meter(sn)
+		base = now_datetime() - timedelta(hours=40)
+		times = [base, base + timedelta(hours=12), base + timedelta(hours=24),
+		         base + timedelta(hours=24, minutes=3)]  # a command reply
+		for i, t in enumerate(times):
+			frappe.get_doc({"doctype": "Meter Reading", "water_meter": sn, "device_time": t,
+			                "dedupe_key": f"{sn}:{i}"}).insert(ignore_permissions=True)
+		due = valve.next_report_due(sn)
+		self.assertGreater(due, now_datetime())
+		self.assertLessEqual(due, now_datetime() + timedelta(hours=12))
