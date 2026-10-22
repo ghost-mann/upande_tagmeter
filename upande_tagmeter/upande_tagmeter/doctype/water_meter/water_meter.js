@@ -73,6 +73,12 @@ frappe.ui.form.on("Water Meter", {
 	refresh(frm) {
 		if (frm.is_new()) return;
 		frm.add_custom_button(__("Poll Now"), () => poll(frm), __("TagMeter"));
+		frm.add_custom_button(__("Meter Readings"), () =>
+			frappe.set_route("List", "Meter Reading", { water_meter: frm.doc.name }), __("TagMeter"));
+		if (frm.doc.meter_profile === "Quinto Prepaid") {
+			frm.add_custom_button(__("Valve Commands"), () =>
+				frappe.set_route("List", "Meter Command", { water_meter: frm.doc.name }), __("TagMeter"));
+		}
 		render_valve(frm);
 	},
 });

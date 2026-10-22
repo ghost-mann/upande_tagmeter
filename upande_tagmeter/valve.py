@@ -60,8 +60,8 @@ def _pending(water_meter: str):
 	"""
 	rows = frappe.get_all(
 		"Meter Command", filters={"water_meter": water_meter, "status": "Queued"},
-		fields=["name", "requested_state", "enqueued_at"],
-		order_by="enqueued_at desc", limit_page_length=1,
+		fields=["name", "requested_state", "enqueued_at", "creation"],
+		order_by="creation desc", limit_page_length=1,
 	)
 	return rows[0] if rows else None
 
@@ -93,7 +93,7 @@ def set_valve(water_meter: str, action: str, expiry_hours: float | None = None) 
 
 	if effective == spec["requested_state"]:
 		if pending:
-			age = (now_datetime() - pending.enqueued_at).total_seconds()
+			age = (now_datetime() - (pending.enqueued_at or pending.creation)).total_seconds()
 			if age <= settings.get("duplicate_window_seconds"):
 				# Double-click. Hand back the command already in flight rather
 				# than putting a second identical downlink on the air.
@@ -294,15 +294,25 @@ EXPIRY_REASON = (
 )
 
 
+def _deadline(row):
+	"""When a queued command expires. Falls back to creation + the timeout for
+	a command with no ``expires_at`` -- one created outside set_valve, which
+	would otherwise sit Queued forever. Meter Command now refuses those, but
+	rows saved before that guard still exist."""
+	if row.expires_at:
+		return row.expires_at
+	return add_to_date(row.creation, minutes=settings.get("valve_timeout_minutes"))
+
+
 def _expire_overdue() -> list[str]:
 	"""Close out anything past its deadline. Shared by the poller and the
 	watchdog: a ten-minute timeout applied only once an hour is not a
 	ten-minute timeout."""
 	expired = []
 	for row in frappe.get_all(
-		"Meter Command", filters={"status": "Queued"}, fields=["name", "expires_at"],
+		"Meter Command", filters={"status": "Queued"}, fields=["name", "expires_at", "creation"],
 	):
-		if row.expires_at and now_datetime() > row.expires_at:
+		if now_datetime() > _deadline(row):
 			_close_out(frappe.get_doc("Meter Command", row.name), "Expired",
 			           failure_reason=EXPIRY_REASON)
 			expired.append(row.name)
@@ -367,10 +377,10 @@ def watchdog() -> dict:
 	failures = []
 	for row in frappe.get_all(
 		"Meter Command", filters={"status": "Queued"},
-		fields=["name", "attempts", "max_attempts", "expires_at", "last_outcome"],
+		fields=["name", "attempts", "max_attempts", "expires_at", "last_outcome", "creation"],
 	):
 		command = frappe.get_doc("Meter Command", row.name)
-		if row.expires_at and now_datetime() > row.expires_at:
+		if now_datetime() > _deadline(row):
 			_close_out(command, "Expired", failure_reason=EXPIRY_REASON)
 			expired += 1
 			continue

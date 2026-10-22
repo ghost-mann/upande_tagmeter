@@ -426,3 +426,34 @@ class TestValve(IntegrationTestCase):
 		self.assertGreaterEqual(out["polled"], 2)
 		valve.release(a)
 		valve.release(b)
+
+    # ── commands created outside set_valve ──────────────────────────────────
+
+	def test_a_command_created_from_the_desk_form_is_refused(self):
+		"""The New form skips every guard set_valve applies, and the watchdog
+		would then fire it unannounced with no expiry."""
+		sn = "68753500171030"
+		self._meter(sn)
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc({
+				"doctype": "Meter Command", "water_meter": sn,
+				"command_type": "valve_open", "requested_state": "Open",
+			}).insert()
+
+	def test_a_legacy_command_with_no_expiry_still_expires(self):
+		"""Rows saved before the guard have no expires_at and would sit Queued
+		forever; their deadline falls back to creation + the timeout."""
+		sn = "68753500171031"
+		self._meter(sn)
+		client = FakeClient(OK)
+		with patch.object(valve, "get_client", return_value=client):
+			res = valve.set_valve(sn, "close")
+		frappe.db.set_value("Meter Command", res["command"], {
+			"expires_at": None, "enqueued_at": None,
+			"creation": add_to_date(now_datetime(), hours=-2),
+		}, update_modified=False)
+
+		with patch.object(valve, "get_client", return_value=client):
+			valve.watchdog()
+		self.assertEqual(frappe.db.get_value("Meter Command", res["command"], "status"), "Expired")
+		self.assertEqual(len(client.sent), 1)  # expired, not re-sent
